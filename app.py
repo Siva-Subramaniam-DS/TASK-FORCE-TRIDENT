@@ -518,26 +518,12 @@ COMMAND_DATA = {
                 "permissions": "everyone",
                 "example": "Simply type `/help` to see available commands"
             },
-            {
-                "name": "/rules",
-                "description": "View tournament rules (or manage them if you're an organizer)",
-                "usage": "/rules",
-                "permissions": "everyone (view) / organizer (manage)",
-                "example": "Use `/rules` to view current tournament rules"
-            }
         ]
     },
     "utility": {
         "title": "🛠️ Utility Commands",
         "description": "Helpful tools for tournament management",
         "commands": [
-            {
-                "name": "/team_balance",
-                "description": "Balance two teams based on player skill levels",
-                "usage": "/team_balance levels:<comma-separated levels>",
-                "permissions": "everyone",
-                "example": "Example: `/team_balance levels:48,50,51,35,51,50,50,37,51,52`"
-            },
             {
                 "name": "/time",
                 "description": "Generate a random match time between 12:00-17:59 UTC",
@@ -611,13 +597,6 @@ COMMAND_DATA = {
                 "permissions": "head_organizer",
                 "example": "Use `/staff-update` to manually correct staff leaderboard statistics"
             },
-            {
-                "name": "/tournament-setup",
-                "description": "Wipe all old data and set up for a new tournament",
-                "usage": "/tournament-setup [bracket_link:<url>]",
-                "permissions": "bot_owner",
-                "example": "Use `/tournament-setup` to start a new tournament season (Bot Owner Only)"
-            }
         ]
     },
     "judge": {
@@ -2133,10 +2112,7 @@ async def on_ready():
     
     print("🎯 Bot is ready to receive commands!")
 
-@tree.command(name="rules", description="Display the tournament rules")
-async def rules_command(interaction: discord.Interaction):
-    """View tournament rules"""
-    await display_rules(interaction)
+
 
 @tree.command(name="help", description="Show available commands based on your permissions")
 async def help_command(interaction: discord.Interaction):
@@ -2317,42 +2293,6 @@ async def info_command(interaction: discord.Interaction):
 
 
     
-@tree.command(name="team_balance", description="Balance two teams based on player levels")
-@app_commands.describe(levels="Comma-separated player levels (e.g. 48,50,51,35,51,50,50,37,51,52)")
-async def team_balance(interaction: discord.Interaction, levels: str):
-    try:
-        level_list = [int(x.strip()) for x in levels.split(",") if x.strip()]
-        n = len(level_list)
-        if n % 2 != 0:
-            await interaction.response.send_message("❌ Number of players must be even (e.g., 8 or 10).", ephemeral=True)
-            return
-
-        team_size = n // 2
-        min_diff = float('inf')
-        best_team_a = []
-        for combo in combinations(level_list, team_size):
-            team_a = list(combo)
-            team_b = list(level_list)
-            for lvl in team_a:
-                team_b.remove(lvl)
-            diff = abs(sum(team_a) - sum(team_b))
-            if diff < min_diff:
-                min_diff = diff
-                best_team_a = team_a
-        team_b = list(level_list)
-        for lvl in best_team_a:
-            team_b.remove(lvl)
-        sum_a = sum(best_team_a)
-        sum_b = sum(team_b)
-        diff = abs(sum_a - sum_b)
-        await interaction.response.send_message(
-            f"**Team A:** {best_team_a} | Total Level: {sum_a}\n"
-            f"**Team B:** {team_b} | Total Level: {sum_b}\n"
-            f"**Level Difference:** {diff}",
-            ephemeral=True
-        )
-    except Exception as e:
-        await interaction.response.send_message(f"❌ Error: {e}", ephemeral=True)
 
 @tree.command(name="event", description="Event management commands")
 @app_commands.describe(
@@ -3416,118 +3356,6 @@ async def staff_update(interaction: discord.Interaction, staff_member: discord.M
     await interaction.response.send_message(f"✅ Successfully updated **{staff_member.display_name}**'s {role.name} count from {current_count} to **{new_count}**.", ephemeral=False)
 
 
-CURRENT_TOURNAMENT_NAME = ""
-PLAYER_INFO_LINK = ""
-PLAYER_INFO_FORMAT = "5 vs 5"
-
-
-
-@tree.command(name='tournament-setup', description='Wipe all old data and set up for a new tournament (Bot Owner Only)')
-@app_commands.describe(
-    bracket_link='The official bracket link for the new tournament',
-    bracket_api_key='The Bracket API Key for the tournament',
-    google_sheet_link='The Google Sheet Link for the tournament',
-    tournament_name='Name of the new tournament'
-)
-async def tournament_setup(
-    interaction: discord.Interaction, 
-    bracket_link: str,
-    bracket_api_key: str,
-    google_sheet_link: str,
-    tournament_name: str
-):
-    user_roles = [r.id for r in interaction.user.roles] if hasattr(interaction.user, 'roles') else []
-    is_owner = interaction.user.id == BOT_OWNER_ID
-    is_organizer = ROLE_IDS.get("head_organizer") in user_roles
-    
-    try:
-        is_owner_client = await interaction.client.is_owner(interaction.user)
-    except:
-        is_owner_client = False
-        
-    if not (is_owner or is_owner_client or is_organizer):
-        await interaction.response.send_message('❌ This command is restricted to the Bot Owner or Head Organizer.', ephemeral=True)
-        return
-
-    await interaction.response.defer(ephemeral=False)
-    status = []
-
-    global scheduled_events, staff_stats, tournament_rules, reminder_tasks, cleanup_tasks, judge_assignments
-    global BRACKET_LINK, BRACKET_API_KEY, GOOGLE_SHEET_LINK, CURRENT_TOURNAMENT_NAME
-    
-    # Update configurations
-    BRACKET_LINK = bracket_link
-    BRACKET_API_KEY = bracket_api_key
-    GOOGLE_SHEET_LINK = google_sheet_link
-    CURRENT_TOURNAMENT_NAME = tournament_name
-    save_config()
-    status.append('✅ **Configuration:** Bracket, Sheet, and Tournament Name updated successfully.')
-
-    # Cancel active event background tasks
-    for task in reminder_tasks.values():
-        if not task.done():
-            task.cancel()
-    reminder_tasks.clear()
-    
-    for task in cleanup_tasks.values():
-        if not task.done():
-            task.cancel()
-    cleanup_tasks.clear()
-    
-    # Clear active assignments
-    judge_assignments.clear()
-    
-    scheduled_events.clear()
-    staff_stats.clear()
-    tournament_rules.clear()
-
-    if bracket_link:
-        tournament_rules['bracket_link'] = bracket_link
-
-    try:
-        import os
-        if os.path.exists('scheduled_events.json'):
-            os.remove('scheduled_events.json')
-        if os.path.exists('staff_stats.json'):
-            os.remove('staff_stats.json')
-        if os.path.exists('tournament_rules.json'):
-            os.remove('tournament_rules.json')
-        db_msg = "> 🔸 Local Matches Wiped\n> 🔸 Staff Leaderboards Cleared\n> 🔸 Active Alarms Destroyed"
-    except Exception as e:
-        db_msg = f"> ❌ Failed to wipe local storage: {e}"
-
-    save_scheduled_events()
-    save_staff_stats()
-    save_rules()
-
-    embed = discord.Embed(
-        title=f"🛑 TOURNAMENT HARD-RESET: {CURRENT_TOURNAMENT_NAME}",
-        description=(
-            "**All Core Systems Synchronized & Wiped Successfully.**\n"
-            "Your database is now completely clean and ready for a fresh competitive season.\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-        ),
-        color=discord.Color.brand_red()
-    )
-    
-    embed.add_field(name="⚙️ __Configurations__", value="> 🔹 Tournament Name Updated\n> 🔹 Google Sheet API Linked\n> 🔹 Challonge Bracket Linked", inline=False)
-    embed.add_field(name="🗑️ __Data Purge__", value=db_msg, inline=False)
-    
-    embed.add_field(
-        name='📝 __Next Steps Required__',
-        value=(
-            f"**1.** Execute `/tournament-start` when you are ready to generate match tickets.\n"
-            f"**2.** Use the `/rules` command to instantly write and broadcast the new season's competitive guidelines directly into your Discord's rules category."
-        ),
-        inline=False
-    )
-    
-    if interaction.guild.icon:
-        embed.set_thumbnail(url=interaction.guild.icon.url)
-        
-    embed.set_footer(text=f'Initialization complete • {ORGANIZATION_NAME}')
-    
-    await interaction.followup.send(embed=embed)
 
 
 @tree.command(name="exchange", description="Exchange a Judge or Recorder for an event")
@@ -4090,319 +3918,6 @@ async def add_captain(interaction: discord.Interaction, round: str, captain1: di
     except Exception as e:
         await interaction.response.send_message(f"❌ An error occurred: {str(e)}", ephemeral=True)
         print(f"Error in add_captain command: {e}")
-
-
-@tree.command(name='tournament-start', description='Start tournament matches and create tickets for open matches')
-@app_commands.describe(
-    tournament_name='Name of the tournament (optional override, uses saved name by default)'
-)
-async def tournament_start(interaction: discord.Interaction, tournament_name: Optional[str]=None):
-    user_roles = [r.id for r in interaction.user.roles] if hasattr(interaction.user, 'roles') else []
-    is_owner = interaction.user.id == BOT_OWNER_ID
-    is_organizer = ROLE_IDS.get("head_organizer") in user_roles
-    
-    if not (is_owner or is_organizer):
-        await interaction.response.send_message("❌ You need **Head Organizer** role to start a tournament.", ephemeral=True)
-        return
-
-    await interaction.response.defer()
-
-    progress = discord.Embed(
-        title="⚙️ Tournament Automation Progress",
-        description="Synchronizing data across systems...",
-        color=discord.Color.blue()
-    )
-    progress.add_field(name="Step 1: System Config", value="⏳ Checking database...", inline=False)
-    progress.add_field(name="Step 2: Challonge API", value="⏳ Waiting...", inline=False)
-    progress.add_field(name="Step 3: Google Sheets API", value="⏳ Waiting...", inline=False)
-    progress.add_field(name="Step 4: Ticket Creation", value="⏳ Waiting...", inline=False)
-    
-    await interaction.edit_original_response(embed=progress)
-
-    # ── Step 1: Config check ──────────────────────────────────────────
-    missing = []
-    if not BRACKET_LINK:   missing.append("Bracket Link")
-    if not BRACKET_API_KEY: missing.append("Bracket API Key")
-    if not GOOGLE_SHEET_LINK: missing.append("Google Sheet Link")
-    if missing:
-        progress.color = discord.Color.red()
-        progress.set_field_at(0, name="Step 1: System Config", value=f"❌ **Failed!** Missing: `{'`, `'.join(missing)}`", inline=False)
-        await interaction.edit_original_response(embed=progress)
-        return
-
-    progress.set_field_at(0, name="Step 1: System Config", value="✅ Verified successfully", inline=False)
-    progress.set_field_at(1, name="Step 2: Challonge API", value="🔄 Fetching live bracket data...", inline=False)
-    await interaction.edit_original_response(embed=progress)
-
-    # ── Step 2: Challonge ─────────────────────────────────────────────
-    matches, err = await fetch_challonge_open_matches(BRACKET_LINK, BRACKET_API_KEY)
-    if err:
-        progress.color = discord.Color.red()
-        progress.set_field_at(1, name="Step 2: Challonge API", value=f"❌ **Error:** {err}", inline=False)
-        await interaction.edit_original_response(embed=progress)
-        return
-    if not matches:
-        progress.color = discord.Color.green()
-        progress.set_field_at(1, name="Step 2: Challonge API", value="✅ No open matches right now. All caught up!", inline=False)
-        progress.description = "Tournament is fully up to date."
-        await interaction.edit_original_response(embed=progress)
-        return
-
-    progress.set_field_at(1, name="Step 2: Challonge API", value=f"✅ Found **{len(matches)}** open match(es)", inline=False)
-    progress.set_field_at(2, name="Step 3: Google Sheets API", value="🔄 Downloading captain roster...", inline=False)
-    await interaction.edit_original_response(embed=progress)
-
-    # ── Step 3: Google Sheet ──────────────────────────────────────────
-    captains_dict, is_1v1, err2 = await fetch_google_sheet_captains(GOOGLE_SHEET_LINK)
-    if err2:
-        progress.color = discord.Color.red()
-        progress.set_field_at(2, name="Step 3: Google Sheets API", value=f"❌ **Error:** {err2}", inline=False)
-        await interaction.edit_original_response(embed=progress)
-        return
-
-    progress.set_field_at(2, name="Step 3: Google Sheets API", value=f"✅ Loaded {len(captains_dict)} team records", inline=False)
-    progress.set_field_at(3, name="Step 4: Ticket Creation", value="🔄 Creating Discord channels...", inline=False)
-    await interaction.edit_original_response(embed=progress)
-
-    # ── Step 4: Create channels ───────────────────────────────────────
-    primary_category_id = CHANNEL_IDS.get("category_1", 1492915175836221532)
-    backup_category_id = CHANNEL_IDS.get("category_2", 1492915301602430996)
-    
-    cat_primary = discord.utils.get(interaction.guild.categories, id=primary_category_id)
-    cat_backup = discord.utils.get(interaction.guild.categories, id=backup_category_id)
-    
-    if not cat_primary and not cat_backup:
-        await interaction.followup.send(f"❌ Neither Primary Category `{primary_category_id}` nor Backup Category `{backup_category_id}` were found. Check the IDs.")
-        return
-
-    created_channels = []
-    skipped = []
-    errors = []
-    t_name = tournament_name or CURRENT_TOURNAMENT_NAME
-    helper_team_role = discord.utils.get(interaction.guild.roles, id=ROLE_IDS["helper_team"])
-
-    total_matches = len(matches)
-    bar_init = '░' * 20
-    progress.set_field_at(3, name="Step 4: Ticket Creation", value=f"🔄 Creating rooms...\n`[{bar_init}] 0% (0/{total_matches})`", inline=False)
-    await interaction.edit_original_response(embed=progress)
-
-    for i, match in enumerate(matches, 1):
-        team1 = match['team1']
-        team2 = match['team2']
-        p1_id = match['player1_id']
-        p2_id = match['player2_id']
-        match_id = match['id']
-        mod_round = match['round']
-
-        # Lookup captain raw values from sheet
-        c1_raw = captains_dict.get(team1, "") or captains_dict.get(team1.strip(), "")
-        c2_raw = captains_dict.get(team2, "") or captains_dict.get(team2.strip(), "")
-
-        # Extract Discord user ID from mention (<@id>, <@!id>) or plain number
-        def extract_uid(raw: str):
-            m = re.search(r'<@!?(\d+)>', raw)
-            if m:
-                return int(m.group(1))
-            if raw.strip().isdigit():
-                return int(raw.strip())
-            return None
-
-        captain1: discord.Member = None
-        captain2: discord.Member = None
-
-        uid1 = extract_uid(c1_raw)
-        uid2 = extract_uid(c2_raw)
-
-        if uid1:
-            try:
-                captain1 = await interaction.guild.fetch_member(uid1)
-            except Exception as e:
-                print(f"[tournament-start] Could not fetch member {uid1}: {e}")
-        if uid2:
-            try:
-                captain2 = await interaction.guild.fetch_member(uid2)
-            except Exception as e:
-                print(f"[tournament-start] Could not fetch member {uid2}: {e}")
-
-        # Build channel name
-        if is_1v1:
-            n1 = captain1.name.lower() if captain1 else re.sub(r'[^a-zA-Z0-9]', '', team1).lower()[:12]
-            n2 = captain2.name.lower() if captain2 else re.sub(r'[^a-zA-Z0-9]', '', team2).lower()[:12]
-            chan_name = f"r{mod_round}-{n1}-vs-{n2}"
-        else:
-            safe_t1 = re.sub(r'[^a-zA-Z0-9]', '', team1).lower()[:8]
-            safe_t2 = re.sub(r'[^a-zA-Z0-9]', '', team2).lower()[:8]
-            c1_sfx = captain1.name.lower()[:6] if captain1 else 'cap1'
-            c2_sfx = captain2.name.lower()[:6] if captain2 else 'cap2'
-            chan_name = f"r{mod_round}-{safe_t1}{c1_sfx}-vs-{safe_t2}{c2_sfx}"
-
-        chan_name = re.sub(r'[^a-zA-Z0-9\-]', '-', chan_name)
-        chan_name = re.sub(r'-+', '-', chan_name).strip('-')[:100]
-
-        topic = f"MatchID:{match_id} | P1:{p1_id} | P2:{p2_id} | Team1:{team1} | Team2:{team2}"
-
-        already_exists = False
-        for c in filter(None, [cat_primary, cat_backup]):
-            if discord.utils.get(c.channels, name=chan_name):
-                already_exists = True
-                break
-                
-        if already_exists:
-            skipped.append(chan_name)
-            continue
-
-        target_category = cat_primary
-        if cat_primary and len(cat_primary.channels) >= 49:
-            target_category = cat_backup
-
-        try:
-            # Replicate robust Ticket Tool authorizations natively
-            overwrites = {}
-            if target_category and target_category.overwrites:
-                overwrites = dict(target_category.overwrites)
-            
-            # 1. Hide from public
-            if interaction.guild.default_role not in overwrites:
-                overwrites[interaction.guild.default_role] = discord.PermissionOverwrite(view_channel=False)
-            else:
-                overwrites[interaction.guild.default_role].view_channel = False
-
-            # 2. Allow bot & creator universally
-            overwrites[interaction.guild.me] = discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True, manage_channels=True, manage_permissions=True)
-            overwrites[interaction.user] = discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True)
-
-            # 3. Allow Staff
-            for role_key in ["head_organizer", "head_helper", "helper_team"]:
-                r_id = ROLE_IDS.get(role_key)
-                if r_id:
-                    staff_r = discord.utils.get(interaction.guild.roles, id=r_id)
-                    if staff_r:
-                        overwrites[staff_r] = discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True)
-
-            # 4. Allow Captains
-            if captain1:
-                overwrites[captain1] = discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True)
-            if captain2:
-                overwrites[captain2] = discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True)
-
-            new_ch = await interaction.guild.create_text_channel(
-                name=chan_name,
-                category=target_category,
-                topic=topic,
-                overwrites=overwrites
-            )
-
-            created_channels.append(new_ch.mention)
-
-            # Build match setup embed — TASK FORCE TRIDENT branded
-            rules_embed = discord.Embed(
-                title="⚓ TASK FORCE TRIDENT — Match Setup",
-                description="Welcome to your match channel. Use this channel for all tournament discussions.",
-                color=discord.Color(BRAND_COLOR)
-            )
-            rules_embed.add_field(
-                name="📋 Tournament Information",
-                value=(
-                    f"• 🏆 [Live Bracket]({LINK_BRACKET}) — View current standings\n"
-                    f"• ⏰ [Match Deadlines]({LINK_DEADLINE}) — Schedule & timings\n"
-                    f"• 📜 [Tournament Rules]({LINK_RULES}) — Read before playing"
-                ),
-                inline=False
-            )
-
-            if is_1v1:
-                pval = (
-                    f"**Round:** R{mod_round}\n"
-                    f"**Captain 1:** {captain1.mention if captain1 else c1_raw or team1}\n"
-                    f"**Captain 2:** {captain2.mention if captain2 else c2_raw or team2}"
-                )
-            else:
-                pval = (
-                    f"**Round:** R{mod_round}\n"
-                    f"**Team 1:** {team1} — Captain: {captain1.mention if captain1 else c1_raw or 'Not Found'}\n"
-                    f"**Team 2:** {team2} — Captain: {captain2.mention if captain2 else c2_raw or 'Not Found'}"
-                )
-
-            rules_embed.add_field(name="👥 Match Participants", value=pval, inline=False)
-            rules_embed.add_field(
-                name="🆘 Need Help?",
-                value=f"Ping {helper_team_role.mention if helper_team_role else '@Helper Team'} and a staff member will assist you.",
-                inline=False
-            )
-            rules_embed.add_field(
-                name="🤝 Fair Play",
-                value="We appreciate your cooperation. Good luck and have fun! ⚓",
-                inline=False
-            )
-            rules_embed.set_footer(
-                text=f"{ORGANIZATION_NAME} | {interaction.user.name} • {datetime.datetime.now().strftime('%d-%m-%Y %H:%M')}"
-            )
-
-            ping_content = " ".join(filter(None, [
-                captain1.mention if captain1 else (c1_raw or None),
-                captain2.mention if captain2 else (c2_raw or None),
-            ])) or f"{team1} vs {team2}"
-
-            logo_candidates_ts = ["TFT Logo.png", "logo.png"]
-            sent_logo = False
-            for lp in logo_candidates_ts:
-                try:
-                    with open(lp, "rb") as lf:
-                        ld = io.BytesIO(lf.read())
-                        lf2 = discord.File(ld, filename="logo.png")
-                        rules_embed.set_thumbnail(url="attachment://logo.png")
-                        await new_ch.send(content=ping_content, embed=rules_embed, file=lf2)
-                        sent_logo = True
-                        break
-                except FileNotFoundError:
-                    continue
-                except Exception as logo_e:
-                    print(f"[tournament-start] Logo error: {logo_e}")
-                    break
-            if not sent_logo:
-                await new_ch.send(content=ping_content, embed=rules_embed)
-
-        except Exception as ch_e:
-            errors.append(f"`{chan_name}`: {ch_e}")
-            print(f"[tournament-start] Channel creation error {chan_name}: {ch_e}")
-
-        # Live Update Progress Bar every 2 iterations to avoid Discord API limits
-        if i % 2 == 0 or i == total_matches:
-            filled = int(20 * i / total_matches)
-            bar = '▓' * filled + '░' * (20 - filled)
-            pct = int((i / total_matches) * 100)
-            progress.set_field_at(
-                3, 
-                name="Step 4: Ticket Creation", 
-                value=f"🔄 Creating rooms...\n`[{bar}] {pct}% ({i}/{total_matches})`", 
-                inline=False
-            )
-            try:
-                await interaction.edit_original_response(embed=progress)
-            except Exception:
-                pass
-
-    # ── Final summary ─────────────────────────────────────────────────
-    progress.color = discord.Color.green()
-    progress.description = "✅ Setup complete! All systems operational."
-    
-    val_lines = []
-    if created_channels:
-        val_lines.append(f"🎫 **Created {len(created_channels)} tickets**")
-    if skipped:
-        val_lines.append(f"⏭️ **Skipped {len(skipped)} existing tickets**")
-    if errors:
-        val_lines.append(f"⚠️ **{len(errors)} errors** (see logs)")
-    
-    if not val_lines:
-        val_lines.append("No actions needed.")
-        
-    progress.set_field_at(3, name="Step 4: Ticket Creation", value="\n".join(val_lines), inline=False)
-    await interaction.edit_original_response(embed=progress)
-
-
-
-
 @tree.command(name="maps", description="Randomly select 3, 5, or 7 maps for gameplay")
 @app_commands.describe(
     count="Number of maps to select (3, 5, or 7)"
@@ -4607,29 +4122,6 @@ async def publish_rules(interaction: discord.Interaction):
         
     await interaction.response.send_modal(RulesModal())
 
-@tree.command(name='find-tickets', description='Secret debug command to find where tickets live')
-async def find_tickets(interaction: discord.Interaction):
-    category_id = CHANNEL_IDS.get("category_1", 1492915175836221532)
-    lines = []
-    
-    cat = discord.utils.get(interaction.guild.categories, id=category_id)
-    if cat:
-        lines.append(f"✅ **Target Category:** '{cat.name}' (ID: {category_id}) - contains {len(cat.channels)} channels.")
-    else:
-        lines.append(f"❌ **Category ID {category_id} not found in this server!**")
-        
-    found = []
-    for ch in interaction.guild.channels:
-        if ch.name.startswith('r') and '-vs-' in ch.name:
-            parent_name = ch.category.name if ch.category else "NO CATEGORY (At top of server!)"
-            found.append(f"{ch.mention} -> `{parent_name}`")
-            
-    lines.append(f"\n🔍 **Found {len(found)} tournament ticket channels total:**")
-    lines.extend(found[:20])
-    if len(found) > 20: lines.append(f"...and {len(found)-20} more.")
-    
-    await interaction.response.send_message("\n".join(lines), ephemeral=True)
-
 async def auto_create_open_tickets(guild: discord.Guild, user: discord.Member):
     # Automatic background ticket creation for open matches
     if not (BRACKET_LINK and BRACKET_API_KEY and GOOGLE_SHEET_LINK):
@@ -4768,98 +4260,6 @@ async def auto_create_open_tickets(guild: discord.Guild, user: discord.Member):
         except Exception as e:
             print(f"[auto-ticket] Channel creation error {chan_name}: {e}")
 
-@tree.command(name='upload-bracket-result', description='Upload match result manually directly to Challonge bracket based on this ticket')
-@app_commands.describe(
-    winner='The captain or team representative who won the match',
-    winner_score='Score of the winner',
-    loser_score='Score of the loser'
-)
-async def upload_bracket_result(interaction: discord.Interaction, winner: discord.User, winner_score: int, loser_score: int):
-    if not (has_event_create_permission(interaction) or has_event_result_permission(interaction)):
-        await interaction.response.send_message("❌ Let your organizer do this.", ephemeral=True)
-        return
-        
-    topic = getattr(interaction.channel, 'topic', '')
-    if not topic or "MatchID:" not in topic:
-        await interaction.response.send_message("❌ This command must be run inside a Match Ticket channel generated by the bot.", ephemeral=True)
-        return
-        
-    await interaction.response.defer(ephemeral=False)
-    
-    match_id_match = re.search(r'MatchID:(\d+)', topic)
-    p1_match = re.search(r'P1:(\d+)', topic)
-    p2_match = re.search(r'P2:(\d+)', topic)
-    t1_match = re.search(r'Team1:(.*?) \|', topic)
-    t2_match = re.search(r'Team2:(.*)', topic)
-    
-    if match_id_match and p1_match and p2_match:
-        m_id = match_id_match.group(1)
-        p1_id = p1_match.group(1)
-        p2_id = p2_match.group(1)
-        
-        t1_name = t1_match.group(1).strip() if t1_match else None
-        t2_name = t2_match.group(1).strip() if t2_match else None
-        
-        captains_dict, is_1v1, _ = await fetch_google_sheet_captains(GOOGLE_SHEET_LINK)
-        
-        winner_p_id = p1_id # default guess
-        if captains_dict and t1_name and t2_name:
-            c1_mention = captains_dict.get(t1_name, "")
-            c2_mention = captains_dict.get(t2_name, "")
-            if str(winner.id) in c2_mention:
-                winner_p_id = p2_id
-            elif str(winner.id) in c1_mention:
-                winner_p_id = p1_id
-        
-        scores_csv = f"{winner_score}-{loser_score}"
-        if w_score := max(winner_score, loser_score):
-            l_score = min(winner_score, loser_score)
-            scores_csv = f"{w_score}-{l_score}"
-
-        if BRACKET_LINK and BRACKET_API_KEY:
-            success, challonge_err = await update_challonge_match(
-                BRACKET_LINK, BRACKET_API_KEY, m_id, winner_p_id, scores_csv
-            )
-            if success:
-                import asyncio
-                await interaction.edit_original_response(content=f"🎉 **Challonge Updated Successfully!** Match ID `{m_id}` advanced.\n*(Auto-scanning for any newly unlocked matches...)*")
-                asyncio.create_task(auto_create_open_tickets(interaction.guild, interaction.user))
-            else:
-                await interaction.edit_original_response(content=f"❌ **Challonge Update Failed:** {challonge_err}")
-    else:
-        await interaction.edit_original_response(content="❌ Could not extract complete Match Data from the channel topic.")
-
-if __name__ == "__main__":
-    # Get Discord token from environment
-    token = os.environ.get("DISCORD_TOKEN")
-    
-    # Fallback method if direct get doesn't work
-    if not token:
-        for key, value in os.environ.items():
-            if 'DISCORD' in key and 'TOKEN' in key:
-                token = value
-                break
-    
-    if not token:
-        print("ERROR: Discord token not found in environment variables.")
-        print("Please set your Discord bot token in the DISCORD_TOKEN environment variable.")
-        print("You can also create a .env file with: DISCORD_TOKEN=your_token_here")
-        exit(1)
-    
-    try:
-        print("🚀 Starting Discord bot...")
-        print("📡 Connecting to Discord...")
-        bot.run(token, log_handler=None)  # Disable default logging to reduce startup time
-    except discord.LoginFailure:
-        print("ERROR: Invalid Discord token. Please check your bot token.")
-        exit(1)
-    except discord.HTTPException as e:
-        print(f"ERROR: HTTP error connecting to Discord: {e}")
-        exit(1)
-    except Exception as e:
-        print(f"ERROR: Error starting bot: {e}")
-        exit(1)
-
 
 @tree.command(name="config_player_info", description="Set the Google Sheet link and format for player information (Bot Owner Only)")
 @app_commands.describe(
@@ -4966,4 +4366,35 @@ async def player_information(interaction: discord.Interaction, user: discord.Mem
         
     except Exception as e:
         await interaction.followup.send(f"❌ Error fetching player info: {str(e)}", ephemeral=True)
+
+if __name__ == "__main__":
+    # Get Discord token from environment
+    token = os.environ.get("DISCORD_TOKEN")
+    
+    # Fallback method if direct get doesn't work
+    if not token:
+        for key, value in os.environ.items():
+            if 'DISCORD' in key and 'TOKEN' in key:
+                token = value
+                break
+    
+    if not token:
+        print("ERROR: Discord token not found in environment variables.")
+        print("Please set your Discord bot token in the DISCORD_TOKEN environment variable.")
+        print("You can also create a .env file with: DISCORD_TOKEN=your_token_here")
+        exit(1)
+    
+    try:
+        print("🚀 Starting Discord bot...")
+        print("📡 Connecting to Discord...")
+        bot.run(token, log_handler=None)  # Disable default logging to reduce startup time
+    except discord.LoginFailure:
+        print("ERROR: Invalid Discord token. Please check your bot token.")
+        exit(1)
+    except discord.HTTPException as e:
+        print(f"ERROR: HTTP error connecting to Discord: {e}")
+        exit(1)
+    except Exception as e:
+        print(f"ERROR: Error starting bot: {e}")
+        exit(1)
 
