@@ -1,0 +1,136 @@
+53: "registration": 1493371304860979434,    # RULES channel (placeholder)
+54: "rules": 1493371304860979434,           # RULES
+88: LINK_RULES = "https://discord.com/channels/1084589736917737522/1493371304860979434"
+356: # Store tournament rules in memory
+357: tournament_rules = {}
+359: def load_rules():
+360: """Load rules from persistent storage"""
+361: global tournament_rules
+363: if os.path.exists('tournament_rules.json'):
+364: with open('tournament_rules.json', 'r', encoding='utf-8') as f:
+365: tournament_rules = json.load(f)
+366: print(f"Loaded tournament rules from file")
+368: tournament_rules = {}
+369: print("No existing rules file found, starting with empty rules")
+371: print(f"Error loading tournament rules: {e}")
+372: tournament_rules = {}
+439: def save_rules():
+440: """Save rules to persistent storage"""
+442: with open('tournament_rules.json', 'w', encoding='utf-8') as f:
+443: json.dump(tournament_rules, f, indent=2, ensure_ascii=False)
+446: print(f"Error saving tournament rules: {e}")
+449: def get_current_rules():
+450: """Get current rules content"""
+451: return tournament_rules.get('rules', {}).get('content', '')
+453: def set_rules_content(content, user_id, username):
+454: """Set new rules content with metadata"""
+455: global tournament_rules
+461: # Update rules with metadata
+462: tournament_rules['rules'] = {
+469: 'version': tournament_rules.get('rules', {}).get('version', 0) + 1
+472: return save_rules()
+488: "name": "/rules",
+489: "description": "View tournament rules (or manage them if you're an organizer)",
+490: "usage": "/rules",
+492: "example": "Use `/rules` to view current tournament rules"
+703: f"📜 **Rules:** [Read Rules]({LINK_RULES})"
+1041: label="Tournament Rules",
+1042: placeholder="Enter the tournament rules here...",
+1055: # Save the rules
+1056: success = set_rules_content(content, interaction.user.id, interaction.user.name)
+1061: title="✅ Rules Updated Successfully",
+1062: description="Tournament rules have been saved.",
+1068: # Show preview of rules (truncated if too long)
+1070: embed.add_field(name="Rules Preview", value=f"```\n{preview}\n```", inline=False)
+1072: embed.add_field(name="Status", value="Rules have been cleared (empty)", inline=False)
+1078: await interaction.response.send_message("❌ Failed to save rules. Please try again.", ephemeral=True)
+1082: await interaction.response.send_message("❌ An error occurred while saving rules.", ephemeral=True)
+1084: class RulesManagementView(discord.ui.View):
+1090: @discord.ui.button(label="Enter Rules", style=discord.ButtonStyle.green, emoji="📝")
+1091: async def enter_rules(self, interaction: discord.Interaction, button: discord.ui.Button):
+1092: """Button to enter new rules"""
+1093: modal = RuleInputModal("Enter Tournament Rules")
+1096: @discord.ui.button(label="Reedit Rules", style=discord.ButtonStyle.primary, emoji="✏️")
+1097: async def reedit_rules(self, interaction: discord.Interaction, button: discord.ui.Button):
+1098: """Button to edit existing rules"""
+1099: current_rules = get_current_rules()
+1101: if not current_rules:
+1102: await interaction.response.send_message("❌ No rules are currently set. Use 'Enter Rules' to create new rules.", ephemeral=True)
+1105: modal = RuleInputModal("Edit Tournament Rules", current_rules)
+1108: @discord.ui.button(label="Show Rules", style=discord.ButtonStyle.secondary, emoji="👁️")
+1109: async def show_rules(self, interaction: discord.Interaction, button: discord.ui.Button):
+1110: """Button to display current rules"""
+1111: await display_rules(interaction)
+1113: async def display_rules(interaction: discord.Interaction):
+1114: """Display current tournament rules in an embed"""
+1116: global tournament_rules
+1117: current_rules = get_current_rules()
+1119: if not current_rules:
+1121: title="📋 Tournament Rules",
+1122: description="No tournament rules have been set yet.",
+1129: title="📋 Tournament Rules",
+1130: description=current_rules,
+1136: if 'rules' in tournament_rules and 'last_updated' in tournament_rules['rules']:
+1137: updated_by = tournament_rules['rules'].get('updated_by', {}).get('username', 'Unknown')
+1143: print(f"Error displaying rules: {e}")
+1144: await interaction.response.send_message("❌ An error occurred while displaying rules.", ephemeral=False)
+1967: # Load tournament rules from file
+1968: load_rules()
+2011: @tree.command(name="rules", description="Display the tournament rules")
+2012: async def rules_command(interaction: discord.Interaction):
+2013: """View tournament rules"""
+2014: await display_rules(interaction)
+3199: global scheduled_events, staff_stats, tournament_rules, reminder_tasks, cleanup_tasks, judge_assignments
+3226: tournament_rules.clear()
+3229: tournament_rules['bracket_link'] = bracket_link
+3237: if os.path.exists('tournament_rules.json'):
+3238: os.remove('tournament_rules.json')
+3245: save_rules()
+3264: f"**2.** Use the `/rules` command to instantly write and broadcast the new season's competitive guidelines directly into your Discord's rules category."
+3718: """Add two captains to a tournament match and rename the channel with tournament rules."""
+3783: # Send tournament rules message — Ghost Fleet GR branded
+3784: rules_embed = discord.Embed(
+3789: rules_embed.add_field(
+3794: f"• 📜 [Tournament Rules]({LINK_RULES}) — Read before playing"
+3798: rules_embed.add_field(
+3803: rules_embed.add_field(
+3808: rules_embed.add_field(
+3813: rules_embed.set_footer(text=f"{ORGANIZATION_NAME} | Setup by {interaction.user.name} • {datetime.datetime.now().strftime('%d-%m-%Y %H:%M')}")
+3822: rules_embed.set_thumbnail(url="attachment://logo.png")
+3823: await channel.send(embed=rules_embed, file=lf)
+3829: await channel.send(embed=rules_embed)
+3832: await channel.send(embed=rules_embed)
+4042: rules_embed = discord.Embed(
+4047: rules_embed.add_field(
+4052: f"• 📜 [Tournament Rules]({LINK_RULES}) — Read before playing"
+4070: rules_embed.add_field(name="👥 Match Participants", value=pval, inline=False)
+4071: rules_embed.add_field(
+4076: rules_embed.add_field(
+4081: rules_embed.set_footer(
+4097: rules_embed.set_thumbnail(url="attachment://logo.png")
+4098: await new_ch.send(content=ping_content, embed=rules_embed, file=lf2)
+4107: await new_ch.send(content=ping_content, embed=rules_embed)
+4306: class RulesModal(discord.ui.Modal, title='Publish Tournament Rules'):
+4308: label='Rules Title',
+4310: placeholder='e.g., Official Tournament Rules',
+4311: default='🏆 Official Tournament Rules',
+4315: rules_text = discord.ui.TextInput(
+4316: label='Enter Tournament Rules',
+4318: placeholder='Type out the rules here. Formatting like **bold** and *italics* is allowed.',
+4324: channel_id = CHANNEL_IDS.get("rules", 1493371304860979434)
+4327: await interaction.response.send_message(f"❌ Could not find the Rules channel (ID: {channel_id}). Please check the ID.", ephemeral=True)
+4332: description=self.rules_text.value,
+4340: await interaction.response.send_message(f"✅ Rules have been successfully published in {channel.mention}!", ephemeral=True)
+4345: @tree.command(name='rules', description='Write and publish new tournament rules to the guidelines channel')
+4346: async def publish_rules(interaction: discord.Interaction):
+4349: await interaction.response.send_message("❌ You lack permission to publish rules.", ephemeral=True)
+4352: await interaction.response.send_modal(RulesModal())
+4463: rules_embed = discord.Embed(
+4468: rules_embed.add_field(
+4473: f"• 📜 [Rules]({LINK_RULES})"
+4483: rules_embed.add_field(name="👥 Match Participants", value=pval, inline=False)
+4484: rules_embed.add_field(
+4489: rules_embed.set_footer(text=f"{ORGANIZATION_NAME} • Auto-Ticket")
+4501: rules_embed.set_thumbnail(url="attachment://logo.png")
+4502: await new_ch.send(content=ping_content, embed=rules_embed, file=discord.File(io.BytesIO(lf.read()), "logo.png"))
+4510: await new_ch.send(content=ping_content, embed=rules_embed)
