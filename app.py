@@ -4886,9 +4886,7 @@ async def config_player_info(interaction: discord.Interaction, link: str, format
     PLAYER_INFO_FORMAT = format
     save_config()
     
-    await interaction.response.send_message(f"✅ Player Information Config Updated!
-**Link:** {link}
-**Format:** {format}", ephemeral=True)
+    await interaction.response.send_message(f"✅ Player Information Config Updated!\n**Link:** {link}\n**Format:** {format}", ephemeral=True)
 
 
 @tree.command(name="player_information", description="Fetch player/team information based on mention")
