@@ -4289,83 +4289,172 @@ async def config_player_info(interaction: discord.Interaction, link: str, format
     await interaction.response.send_message(f"✅ Player Information Config Updated!\n**Link:** {link}\n**Format:** {format}", ephemeral=True)
 
 
-@tree.command(name="player_information", description="Fetch player/team information based on mention")
+# ── Column name sets for player-info lookup ──────────────────────────────────
+# The bot searches for these header names (case-insensitive, strips whitespace).
+# 1 vs 1 sheet columns:
+#   Player Discord ID | Player Game Name | Player Game ID | Player Title
+# 2v2-5v5 sheet columns:
+#   Team Name | Captain Discord ID | Captain Game Name | Captain Game ID | Captain Title
+#   Player 2 Discord ID | Player 2 Game Name | Player 2 Game ID | Player 2 Title
+#   Player 3 Discord ID | ... (and so on up to Player 5)
+
+_1V1_FIELDS = [
+    "Player Discord ID",
+    "Player Game Name",
+    "Player Game ID",
+    "Player Title",
+]
+
+_TEAM_CAPTAIN_FIELDS = [
+    "Team Name",
+    "Captain Discord ID",
+    "Captain Game Name",
+    "Captain Game ID",
+    "Captain Title",
+]
+
+_TEAM_PLAYER_FIELDS_TEMPLATE = [
+    "Player {n} Discord ID",
+    "Player {n} Game Name",
+    "Player {n} Game ID",
+    "Player {n} Title",
+]
+
+def _build_team_fields(format_str: str) -> list[str]:
+    """Return the ordered field list for a given team format string (e.g. '3 vs 3')."""
+    try:
+        size = int(format_str.split()[0])  # '5 vs 5' → 5
+    except (ValueError, IndexError):
+        size = 5
+    fields = list(_TEAM_CAPTAIN_FIELDS)  # captain is slot 1
+    for n in range(2, size + 1):          # slots 2..size
+        for tmpl in _TEAM_PLAYER_FIELDS_TEMPLATE:
+            fields.append(tmpl.format(n=n))
+    return fields
+
+
+def _col_index(header: list[str], name: str) -> int:
+    """Return the column index for *name* (case-insensitive match), or -1 if not found."""
+    name_lower = name.lower().strip()
+    for i, h in enumerate(header):
+        if h.lower().strip() == name_lower:
+            return i
+    return -1
+
+
+@tree.command(name="player_information", description="Fetch player/team information based on format")
 @app_commands.describe(
-    user="The player to fetch information for"
+    user="The player or captain to look up"
 )
 async def player_information(interaction: discord.Interaction, user: discord.Member):
+    """Fetches structured player / team info from the configured Google Sheet.
+
+    1 vs 1  → shows: Player Discord ID, Player Game Name, Player Game ID, Player Title
+    2-5 vs  → shows: Team Name, Captain fields, Player 2-N fields
+    """
     await interaction.response.defer()
-    
+
     if not PLAYER_INFO_LINK:
-        await interaction.followup.send("❌ Player info sheet link is not configured. Ask the owner to use `/config_player_info`.", ephemeral=True)
+        await interaction.followup.send(
+            "❌ Player info sheet link is not configured. Ask the owner to use `/config_player_info`.",
+            ephemeral=True
+        )
         return
-        
-    match = re.search(r'/d/([a-zA-Z0-9-_]+)', PLAYER_INFO_LINK)
-    if not match:
+
+    sheet_match = re.search(r'/d/([a-zA-Z0-9-_]+)', PLAYER_INFO_LINK)
+    if not sheet_match:
         await interaction.followup.send("❌ Invalid Google Sheet link configured.", ephemeral=True)
         return
-        
-    sheet_id = match.group(1)
+
+    sheet_id = sheet_match.group(1)
     url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv"
-    
+
     try:
-        import requests
-        import csv
-        import io
-        
-        headers = {"User-Agent": "Mozilla/5.0"}
-        resp = requests.get(url, headers=headers, timeout=15)
+        headers_http = {"User-Agent": "Mozilla/5.0"}
+        resp = requests.get(url, headers=headers_http, timeout=15)
         resp.raise_for_status()
         reader = csv.reader(io.StringIO(resp.text))
-        
+
         rows = list(reader)
         if not rows:
-            await interaction.followup.send("❌ Sheet is empty.", ephemeral=True)
+            await interaction.followup.send("❌ The sheet is empty.", ephemeral=True)
             return
-            
+
         header = rows[0]
-        found_row = None
-        
         user_id_str = str(user.id)
         user_mention = f"<@{user.id}>"
-        
+
+        # ── Find the row that contains this user's Discord ID ──────────────────
+        found_row = None
         for row in rows[1:]:
             for cell in row:
-                if user_id_str in cell or user_mention in cell:
+                cell_clean = cell.strip()
+                if user_id_str in cell_clean or user_mention in cell_clean:
                     found_row = row
                     break
             if found_row:
                 break
-                
-        if not found_row:
-            await interaction.followup.send(f"❌ Could not find {user.mention} in the sheet.", ephemeral=True)
+
+        if found_row is None:
+            await interaction.followup.send(
+                f"❌ Could not find {user.mention} in the player information sheet.",
+                ephemeral=True
+            )
             return
-            
-        embed = discord.Embed(
-            title=f"📋 Participant Information - {ORGANIZATION_NAME}",
-            color=discord.Color.blue()
-        )
-        
-        if PLAYER_INFO_FORMAT == "1 vs 1":
-            embed.description = f"**Player Details** for {user.mention}"
-            for i, h in enumerate(header):
-                val = found_row[i] if i < len(found_row) else "N/A"
-                if val.strip():
-                    embed.add_field(name=h, value=val, inline=True)
+
+        # ── Build the embed using only the relevant fields ────────────────────
+        is_1v1 = (PLAYER_INFO_FORMAT == "1 vs 1")
+        desired_fields = _1V1_FIELDS if is_1v1 else _build_team_fields(PLAYER_INFO_FORMAT)
+
+        if is_1v1:
+            embed_title = f"🎮 Player Information — {ORGANIZATION_NAME}"
+            embed_desc = f"Player details for {user.mention}  |  Format: **{PLAYER_INFO_FORMAT}**"
         else:
-            embed.description = f"**Team Details** ({PLAYER_INFO_FORMAT})"
-            for i, h in enumerate(header):
-                val = found_row[i] if i < len(found_row) else "N/A"
-                if val.strip():
-                    embed.add_field(name=h, value=val, inline=True)
-                    
+            embed_title = f"🏆 Team Information — {ORGANIZATION_NAME}"
+            embed_desc = f"Team details for {user.mention}  |  Format: **{PLAYER_INFO_FORMAT}**"
+
+        embed = discord.Embed(
+            title=embed_title,
+            description=embed_desc,
+            color=discord.Color(BRAND_COLOR),
+            timestamp=discord.utils.utcnow()
+        )
         embed.set_thumbnail(url=user.display_avatar.url)
-        embed.set_footer(text=f"{ORGANIZATION_NAME} • Player Info")
-        
+
+        found_any = False
+        for field_name in desired_fields:
+            col = _col_index(header, field_name)
+            if col == -1:
+                # Column doesn't exist in this sheet — skip silently
+                continue
+            raw_val = found_row[col].strip() if col < len(found_row) else ""
+            if not raw_val:
+                raw_val = "—"   # em-dash placeholder for empty cells
+
+            # Format Discord IDs as mentions
+            if "discord id" in field_name.lower() and raw_val.isdigit():
+                raw_val = f"<@{raw_val}>"
+
+            embed.add_field(name=field_name, value=raw_val, inline=True)
+            found_any = True
+
+        if not found_any:
+            embed.add_field(
+                name="⚠️ No Matching Columns",
+                value=(
+                    "The sheet headers don't match the expected format.\n"
+                    "Make sure the column names exactly match:\n"
+                    + ", ".join(desired_fields)
+                ),
+                inline=False
+            )
+
+        embed.set_footer(text=f"{ORGANIZATION_NAME} • Player Info • Requested by {interaction.user.display_name}")
         await interaction.followup.send(embed=embed)
-        
+
     except Exception as e:
         await interaction.followup.send(f"❌ Error fetching player info: {str(e)}", ephemeral=True)
+        print(f"[player_information] Error: {e}")
 
 if __name__ == "__main__":
     # Get Discord token from environment
