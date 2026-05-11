@@ -84,9 +84,9 @@ PLAYER_INFO_FORMAT = "5 vs 5"
 SHEETDB_API_URL = "https://sheetdb.io/api/v1/x068j9llawuvm"
 
 # Key channel links for embeds (uses DEFAULT_CHANNEL_IDS)
-LINK_BRACKET = f"https://discord.com/channels/1500276285027516456/{DEFAULT_CHANNEL_IDS['bracket']}"
-LINK_DEADLINE = f"https://discord.com/channels/1500276285027516456/{DEFAULT_CHANNEL_IDS['deadlines']}"
-LINK_RULES   = f"https://discord.com/channels/1500276285027516456/{DEFAULT_CHANNEL_IDS['rules']}"
+LINK_BRACKET = f"https://discord.com/channels/1500186736633053184/{DEFAULT_CHANNEL_IDS['bracket']}"
+LINK_DEADLINE = f"https://discord.com/channels/1500186736633053184/{DEFAULT_CHANNEL_IDS['deadlines']}"
+LINK_RULES   = f"https://discord.com/channels/1500186736633053184/{DEFAULT_CHANNEL_IDS['rules']}"
 
 # TASK FORCE TRIDENT brand colour (deep navy blue)
 BRAND_COLOR = 0x1E3A5F
@@ -938,7 +938,7 @@ def remove_judge_assignment(judge_id: int, event_id: str):
         if not judge_assignments[judge_id]:  # Remove empty list
             del judge_assignments[judge_id]
 
-class TakeScheduleButton(View):
+class TakeScheduleButton(discord.ui.View):
     def __init__(self, event_id: str, team1_captain: discord.Member, team2_captain: discord.Member, event_channel: discord.TextChannel = None):
         super().__init__(timeout=None)
         self.event_id = event_id
@@ -947,154 +947,195 @@ class TakeScheduleButton(View):
         self.event_channel = event_channel
         self.judge = None
         self._taking_schedule = False  # Flag to prevent race conditions
-        
-    @discord.ui.button(label="Take Schedule", style=discord.ButtonStyle.green, emoji="📋")
-    async def take_schedule(self, interaction: discord.Interaction, button: Button):
-        # Check if event has already started
-        event_data = scheduled_events.get(self.event_id)
-        if event_data:
-            dt = event_data.get('datetime')
-            if dt:
-                if dt.tzinfo is None:
-                    dt = dt.replace(tzinfo=pytz.UTC)
-                if datetime.datetime.now(pytz.UTC) >= dt:
-                    await interaction.response.send_message("❌ This event has already started. You cannot take this schedule.", ephemeral=True)
-                    button.disabled = True
-                    await interaction.message.edit(view=self)
-                    return
 
-        # Prevent race conditions by checking if someone is already taking the schedule
-        if self._taking_schedule:
-            await interaction.response.send_message("⏳ Another judge is currently taking this schedule. Please wait a moment.", ephemeral=True)
+    def _is_event_started(self) -> bool:
+        """Returns True if the event datetime has passed (event started)."""
+        event_data = scheduled_events.get(self.event_id)
+        if not event_data:
+            return False
+        dt = event_data.get('datetime')
+        if not dt:
+            return False
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=pytz.UTC)
+        return datetime.datetime.now(pytz.UTC) >= dt
+
+    @discord.ui.button(label="Take Schedule", style=discord.ButtonStyle.green, emoji="📋", custom_id="take_schedule_btn")
+    async def take_schedule(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # Disable both buttons once event has started
+        if self._is_event_started():
+            for child in self.children:
+                child.disabled = True
+            try:
+                await interaction.message.edit(view=self)
+            except Exception:
+                pass
+            await interaction.response.send_message("❌ This event has already started. Buttons are now disabled.", ephemeral=True)
             return
-            
-        # Check if user has Judge or Head Organizer role
+
+        if self._taking_schedule:
+            await interaction.response.send_message("⏳ Another judge is currently taking this schedule. Please wait.", ephemeral=True)
+            return
+
         head_organizer_role = discord.utils.get(interaction.user.roles, id=ROLE_IDS["head_organizer"])
         judge_role = discord.utils.get(interaction.user.roles, id=ROLE_IDS["judge"])
         if not (head_organizer_role or judge_role):
             await interaction.response.send_message("❌ You need **Head Organizer** or **Judge** role to take this schedule.", ephemeral=True)
             return
-            
-        # Check if already taken
+
         if self.judge:
             await interaction.response.send_message(f"❌ This schedule has already been taken by {self.judge.display_name}.", ephemeral=True)
             return
-        
-        # Judge limit removed — no cap on schedule assignments
-        
-        # Set flag to prevent race conditions
+
         self._taking_schedule = True
-        
         try:
-            # Defer response to give us time to process
             await interaction.response.defer(ephemeral=True)
-            
-            # Double-check if still available (in case another judge took it while we were processing)
+
             if self.judge:
                 await interaction.followup.send(f"❌ This schedule has already been taken by {self.judge.display_name}.", ephemeral=True)
                 return
-            
-            # Assign judge
+
             self.judge = interaction.user
-            
-            # Add to judge assignments tracking
             add_judge_assignment(interaction.user.id, self.event_id)
-            
-            # Update button appearance
+
             button.label = f"Taken by {interaction.user.display_name}"
             button.style = discord.ButtonStyle.gray
             button.disabled = True
             button.emoji = "✅"
-            
-            # Update the embed
+
             embed = interaction.message.embeds[0]
             embed.color = discord.Color.green()
-            
-            # Update judge field using safe utility function
             if not update_judge_field(embed, interaction.user):
                 await interaction.followup.send("❌ Failed to update embed with judge information.", ephemeral=True)
                 return
-            
-            # Update the message with the updated take button only
+
             await interaction.message.edit(embed=embed, view=self)
-            
-            # Send success message
             await interaction.followup.send("✅ You have successfully taken this schedule!", ephemeral=True)
-            
-            # Send notification to the event channel
             await self.send_judge_assignment_notification(interaction.user)
-            
-            # Update scheduled events with judge
+
             if self.event_id in scheduled_events:
                 scheduled_events[self.event_id]['judge'] = self.judge
-            
+                save_scheduled_events()
+
+            # Log judge assignment to SheetDB
+            ev = scheduled_events.get(self.event_id, {})
+            asyncio.create_task(sheetdb_post("JudgeAssignments", {
+                "Timestamp":      datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"),
+                "Event_ID":       self.event_id,
+                "Judge_ID":       str(interaction.user.id),
+                "Judge_Name":     interaction.user.name,
+                "Tournament":     ev.get('tournament', ''),
+                "Round":          ev.get('round', ''),
+                "Date":           ev.get('date_str', ''),
+                "UTC_Time":       ev.get('time_str', ''),
+                "Action":         "Assigned",
+            }))
+
         except Exception as e:
-            # Reset flag in case of error
             self._taking_schedule = False
             print(f"Error in take_schedule: {e}")
-            await interaction.followup.send(f"❌ An error occurred while taking the schedule: {str(e)}", ephemeral=True)
+            await interaction.followup.send(f"❌ An error occurred: {str(e)}", ephemeral=True)
         finally:
-            # Reset flag after processing
             self._taking_schedule = False
 
-    
+    @discord.ui.button(label="Record", style=discord.ButtonStyle.blurple, emoji="🎥", custom_id="record_btn")
+    async def record(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Allow a recorder to claim the recording slot."""
+        if self._is_event_started():
+            for child in self.children:
+                child.disabled = True
+            try:
+                await interaction.message.edit(view=self)
+            except Exception:
+                pass
+            await interaction.response.send_message("❌ This event has already started. Buttons are now disabled.", ephemeral=True)
+            return
+
+        head_organizer_role = discord.utils.get(interaction.user.roles, id=ROLE_IDS["head_organizer"])
+        recorder_role = discord.utils.get(interaction.user.roles, id=ROLE_IDS["recorder"])
+        judge_role = discord.utils.get(interaction.user.roles, id=ROLE_IDS["judge"])
+        if not (head_organizer_role or recorder_role or judge_role):
+            await interaction.response.send_message("❌ You need **Head Organizer**, **Judge**, or **Recorder** role to record.", ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=True)
+
+        button.label = f"Recording: {interaction.user.display_name}"
+        button.style = discord.ButtonStyle.gray
+        button.disabled = True
+        button.emoji = "✅"
+
+        if self.event_id in scheduled_events:
+            scheduled_events[self.event_id]['recorder'] = interaction.user
+            save_scheduled_events()
+
+        embed = interaction.message.embeds[0]
+        remove_field_by_name(embed, "🎥 Recorder")
+        embed.add_field(name="🎥 Recorder", value=interaction.user.mention, inline=True)
+        await interaction.message.edit(embed=embed, view=self)
+
+        if self.event_channel:
+            try:
+                await self.event_channel.set_permissions(
+                    interaction.user,
+                    read_messages=True, send_messages=True, view_channel=True,
+                    embed_links=True, attach_files=True, read_message_history=True
+                )
+                t1_mention = getattr(self.team1_captain, 'mention', f"<@{self.team1_captain}>")
+                t2_mention = getattr(self.team2_captain, 'mention', f"<@{self.team2_captain}>")
+                notify_embed = discord.Embed(
+                    title="🎥 Recorder Assigned",
+                    description=f"**{interaction.user.display_name}** will record this match.",
+                    color=discord.Color.blurple(),
+                    timestamp=discord.utils.utcnow()
+                )
+                notify_embed.add_field(name="Match", value=f"{t1_mention} vs {t2_mention}", inline=False)
+                notify_embed.set_footer(text=f"{ORGANIZATION_NAME}")
+                await self.event_channel.send(content=f"🔔 {interaction.user.mention} {t1_mention} {t2_mention}", embed=notify_embed)
+            except Exception as e:
+                print(f"Error notifying recorder: {e}")
+
+        # Log recorder to SheetDB
+        ev = scheduled_events.get(self.event_id, {})
+        asyncio.create_task(sheetdb_post("JudgeAssignments", {
+            "Timestamp":   datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"),
+            "Event_ID":    self.event_id,
+            "Judge_ID":    str(interaction.user.id),
+            "Judge_Name":  interaction.user.name,
+            "Tournament":  ev.get('tournament', ''),
+            "Round":       ev.get('round', ''),
+            "Date":        ev.get('date_str', ''),
+            "UTC_Time":    ev.get('time_str', ''),
+            "Action":      "Recorder",
+        }))
+        await interaction.followup.send("✅ You have been assigned as the Recorder!", ephemeral=True)
+
     async def send_judge_assignment_notification(self, judge: discord.Member):
         """Send notification to the event channel when a judge is assigned and add judge to channel"""
         if not self.event_channel:
             return
-        
         try:
-            # Add judge to the event channel with proper permissions
             await self.event_channel.set_permissions(
-                judge, 
-                read_messages=True, 
-                send_messages=True, 
-                view_channel=True,
-                embed_links=True,
-                attach_files=True,
-                read_message_history=True
+                judge,
+                read_messages=True, send_messages=True, view_channel=True,
+                embed_links=True, attach_files=True, read_message_history=True
             )
-            
-            # Create notification embed
             embed = discord.Embed(
                 title="👨‍⚖️ Judge Assigned",
                 description=f"**{judge.display_name}** has been assigned as the judge for this match!",
                 color=discord.Color.green(),
                 timestamp=discord.utils.utcnow()
             )
-            
             t1_mention = getattr(self.team1_captain, 'mention', f"<@{self.team1_captain}>" if isinstance(self.team1_captain, int) else "<@Unknown>")
             t2_mention = getattr(self.team2_captain, 'mention', f"<@{self.team2_captain}>" if isinstance(self.team2_captain, int) else "<@Unknown>")
-            
-            embed.add_field(
-                name="📋 Match Details",
-                value=f"**Team 1:** {t1_mention}\n**Team 2:** {t2_mention}",
-                inline=False
-            )
-            
-            embed.add_field(
-                name="👨‍⚖️ Judge",
-                value=f"{judge.mention}\n✅ **Added to channel**",
-                inline=True
-            )
-            
+            embed.add_field(name="📋 Match Details", value=f"**Team 1:** {t1_mention}\n**Team 2:** {t2_mention}", inline=False)
+            embed.add_field(name="👨‍⚖️ Judge", value=f"{judge.mention}\n✅ **Added to channel**", inline=True)
             embed.set_footer(text=f"Judge Assignment • {ORGANIZATION_NAME}")
-            
-            # Send notification to the event channel
-            await self.event_channel.send(
-                content=f"🔔 {judge.mention} {t1_mention} {t2_mention}",
-                embed=embed
-            )
-            
+            await self.event_channel.send(content=f"🔔 {judge.mention} {t1_mention} {t2_mention}", embed=embed)
         except discord.Forbidden:
             print(f"Error: Bot doesn't have permission to add {judge.display_name} to channel {self.event_channel.name}")
         except Exception as e:
             print(f"Error sending judge assignment notification: {e}")
-    
-    
-
-
-
 
 
 # ===========================================================================================
@@ -1605,7 +1646,7 @@ def get_random_template():
             return random.choice(image_files)
     return None
 
-def create_event_poster(template_path: str, round_label: str, team1_captain: str, team2_captain: str, utc_time: str, date_str: str = None, server_name: str = "GhostFleet-GR") -> str:
+def create_event_poster(template_path: str, round_label: str, team1_captain: str, team2_captain: str, utc_time: str, date_str: str = None, server_name: str = "TASK FORCE TRIDENT") -> str:
     """Create event poster with text overlays using Google Fonts and improved error handling"""
     print(f"Creating poster with template: {template_path}")
     
@@ -3075,31 +3116,30 @@ async def reassign_command(interaction: discord.Interaction):
     """Unassign judge from match"""
     permission_level = get_user_permission_level(interaction.user.roles, interaction.user.id)
     if permission_level not in ["judge", "organizer", "owner", "helper"]:
-        await interaction.response.send_message("❌ You do not have permission to unassign events.", ephemeral=True)
+        await interaction.response.send_message("❌ You do not have permission to use /reassign.", ephemeral=True)
         return
 
     # Find events the user is judging
     user_events = []
     for event_id, event_data in scheduled_events.items():
         judge_val = event_data.get('judge')
-        # Check if the judge ID matches the user
         if judge_val and getattr(judge_val, 'id', judge_val) == interaction.user.id:
             user_events.append((event_id, event_data))
-    
+
     if not user_events:
         await interaction.response.send_message("❌ You are not assigned to any events.", ephemeral=True)
         return
 
-    class EventUnassignView(View):
+    class EventReassignView(View):
         def __init__(self):
             super().__init__(timeout=120)
-            
+
         @discord.ui.select(
-            placeholder="Select an event to unassign from...",
+            placeholder="Select an event to resign from...",
             options=[
                 discord.SelectOption(
-                    label=f"Match {idx+1}: {event_data.get('round', 'Round')}",
-                    description=f"{event_data.get('date_str', 'Date')} at {event_data.get('time_str', 'Time')}",
+                    label=f"Match {idx+1}: {event_data.get('round', 'Round')} — {event_data.get('date_str', '')}",
+                    description=f"{event_data.get('time_str', 'Time')} | {event_data.get('tournament', '')}",
                     value=event_id
                 )
                 for idx, (event_id, event_data) in enumerate(user_events[:25])
@@ -3107,69 +3147,108 @@ async def reassign_command(interaction: discord.Interaction):
         )
         async def select_event(self, select_interaction: discord.Interaction, select: discord.ui.Select):
             selected_event_id = select.values[0]
-            event_data = scheduled_events[selected_event_id]
-            
-            # Check 20 minute rule
+            event_data = scheduled_events.get(selected_event_id)
+            if not event_data:
+                await select_interaction.response.send_message("❌ Event not found.", ephemeral=True)
+                return
+
+            # Block reassign within 20 minutes of event start
             dt = event_data.get('datetime')
             if dt:
                 if dt.tzinfo is None:
                     dt = dt.replace(tzinfo=pytz.UTC)
-                
                 time_until = dt - datetime.datetime.now(pytz.UTC)
-                if time_until.total_seconds() < 20 * 60 and time_until.total_seconds() > 0:
-                    await select_interaction.response.send_message("❌ You cannot unassign from an event that starts in less than 20 minutes.", ephemeral=True)
+                if 0 < time_until.total_seconds() < 20 * 60:
+                    await select_interaction.response.send_message(
+                        "❌ Cannot resign — this event starts in less than 20 minutes. Contact an organizer.", ephemeral=True
+                    )
                     return
-            
-            # Remove judge
+
+            # Remove judge from event
+            old_judge = interaction.user
             event_data['judge'] = None
-            if interaction.user.id in judge_assignments and selected_event_id in judge_assignments[interaction.user.id]:
-                judge_assignments[interaction.user.id].remove(selected_event_id)
+            remove_judge_assignment(interaction.user.id, selected_event_id)
             save_scheduled_events()
-            
-            # Update embed to remove judge
-            channel_id = event_data.get('channel_id')
+
+            # Log to SheetDB
+            asyncio.create_task(sheetdb_post("JudgeAssignments", {
+                "Timestamp":   datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"),
+                "Event_ID":    selected_event_id,
+                "Judge_ID":    str(old_judge.id),
+                "Judge_Name":  old_judge.name,
+                "Tournament":  event_data.get('tournament', ''),
+                "Round":       event_data.get('round', ''),
+                "Date":        event_data.get('date_str', ''),
+                "UTC_Time":    event_data.get('time_str', ''),
+                "Action":      "Reassigned (resigned)",
+            }))
+
+            # Get schedule channel to update the original message
+            sched_ch_id = event_data.get('schedule_channel_id') or event_data.get('channel_id')
             msg_id = event_data.get('schedule_message_id')
-            
-            if channel_id and msg_id:
+            sched_channel = bot.get_channel(sched_ch_id) if sched_ch_id else None
+
+            t1 = event_data.get('team1_captain')
+            t2 = event_data.get('team2_captain')
+            t1_id = getattr(t1, 'id', t1) if t1 else None
+            t2_id = getattr(t2, 'id', t2) if t2 else None
+            mem_1 = select_interaction.guild.get_member(int(t1_id)) if t1_id else t1
+            mem_2 = select_interaction.guild.get_member(int(t2_id)) if t2_id else t2
+
+            if sched_channel and msg_id:
                 try:
-                    channel = bot.get_channel(channel_id)
-                    if channel:
-                        msg = await channel.fetch_message(msg_id)
-                        if msg and msg.embeds:
-                            embed = msg.embeds[0]
-                            # Remove the judge field
-                            for i, field in enumerate(embed.fields):
-                                if field.name == "👨‍⚖️ Judge":
-                                    embed.remove_field(i)
-                                    break
-                            
-                            # Reconstruct the view with Take Schedule button
-                            # Using the original view class
-                            t1 = event_data.get('team1_captain')
-                            t2 = event_data.get('team2_captain')
-                            t1_id = getattr(t1, 'id', t1) if t1 else None
-                            t2_id = getattr(t2, 'id', t2) if t2 else None
-                            
-                            # Convert IDs back to members if possible
-                            mem_1 = interaction.guild.get_member(int(t1_id)) if t1_id else None
-                            mem_2 = interaction.guild.get_member(int(t2_id)) if t2_id else None
-                            
-                            new_view = TakeScheduleButton(selected_event_id, mem_1 or t1, mem_2 or t2, channel)
-
-                            await msg.edit(embed=embed, view=new_view)
-                            
-                            # Ping in channel
-                            t1_id = getattr(t1, 'id', t1) if t1 else 'TBD'
-                            t2_id = getattr(t2, 'id', t2) if t2 else 'TBD'
-                            
-                            await channel.send(f"⚠️ <@&{ROLE_IDS['judge']}> The assigned judge has unassigned. Please Take Schedule for the match <@{t1_id}> vs <@{t2_id}>!")
+                    msg = await sched_channel.fetch_message(msg_id)
+                    if msg and msg.embeds:
+                        embed = msg.embeds[0]
+                        # Remove judge field so it shows as open again
+                        remove_field_by_name(embed, "👨‍⚖️ Judge")
+                        embed.color = discord.Color.blue()
+                        # Restore Take Schedule + Record buttons
+                        new_view = TakeScheduleButton(selected_event_id, mem_1 or t1, mem_2 or t2, sched_channel)
+                        await msg.edit(embed=embed, view=new_view)
                 except Exception as e:
-                    print(f"Failed to update message: {e}")
+                    print(f"Failed to restore schedule message: {e}")
 
-            await select_interaction.response.send_message(f"✅ Successfully unassigned from event.", ephemeral=True)
+                # Ping judge role in the schedule channel with a rich notification
+                t1_ping = f"<@{t1_id}>" if t1_id else "Team 1"
+                t2_ping = f"<@{t2_id}>" if t2_id else "Team 2"
+                notify_embed = discord.Embed(
+                    title="🔄 Judge Needed — Schedule Open",
+                    description=(
+                        f"**{old_judge.display_name}** has resigned from judging this match.\n\n"
+                        f"A replacement judge is required! Please click **Take Schedule** on the event post."
+                    ),
+                    color=discord.Color.orange(),
+                    timestamp=discord.utils.utcnow()
+                )
+                notify_embed.add_field(
+                    name="📋 Match Details",
+                    value=(
+                        f"**Tournament:** {event_data.get('tournament', 'N/A')}\n"
+                        f"**Round:** {event_data.get('round', 'N/A')}\n"
+                        f"**Date/Time:** {event_data.get('date_str', '')} at {event_data.get('time_str', '')}\n"
+                        f"**Captains:** {t1_ping} vs {t2_ping}"
+                    ),
+                    inline=False
+                )
+                notify_embed.set_footer(text=f"{ORGANIZATION_NAME} • Reassign System")
+                try:
+                    await sched_channel.send(
+                        content=f"⚠️ <@&{ROLE_IDS['judge']}> — A judge is needed for this match!",
+                        embed=notify_embed
+                    )
+                except Exception as e:
+                    print(f"Error sending reassign notification: {e}")
+
+            await select_interaction.response.send_message(
+                f"✅ You have been removed from the schedule. Judges have been notified.", ephemeral=True
+            )
             self.stop()
-            
-    await interaction.response.send_message("Select the event you want to unassign yourself from:", view=EventUnassignView(), ephemeral=True)
+
+    await interaction.response.send_message(
+        "Select the event you want to resign from:", view=EventReassignView(), ephemeral=True
+    )
+
 
 @tree.command(name="event-delete", description="Delete a scheduled event (Head Organizer/Head Helper/Helper Team only)")
 async def event_delete(interaction: discord.Interaction):
@@ -4261,10 +4340,10 @@ async def auto_create_open_tickets(guild: discord.Guild, user: discord.Member):
             print(f"[auto-ticket] Channel creation error {chan_name}: {e}")
 
 
-@tree.command(name="config_player_info", description="Set the Google Sheet link and format for player information (Bot Owner Only)")
+@tree.command(name="config_player_info", description="Set the Google Sheet link and format for player information (Organizer/Owner)")
 @app_commands.describe(
-    link="Google Sheet link for player info",
-    format="Format of the tournament"
+    link="Google Sheet link for player info (must be publicly accessible)",
+    format="Match format — determines which columns are shown"
 )
 @app_commands.choices(
     format=[
@@ -4272,32 +4351,47 @@ async def auto_create_open_tickets(guild: discord.Guild, user: discord.Member):
         app_commands.Choice(name="2 vs 2", value="2 vs 2"),
         app_commands.Choice(name="3 vs 3", value="3 vs 3"),
         app_commands.Choice(name="4 vs 4", value="4 vs 4"),
-        app_commands.Choice(name="5 vs 5", value="5 vs 5")
+        app_commands.Choice(name="5 vs 5", value="5 vs 5"),
     ]
 )
-async def config_player_info(interaction: discord.Interaction, link: str, format: str):
+async def config_player_info(interaction: discord.Interaction, link: str, format: app_commands.Choice[str]):
+    # Allow Bot Owner OR Head Organizer
     is_owner = interaction.user.id == BOT_OWNER_ID
-    if not is_owner:
-        await interaction.response.send_message("❌ This command is restricted to the Bot Owner.", ephemeral=True)
+    head_organizer_role = discord.utils.get(interaction.user.roles, id=ROLE_IDS["head_organizer"])
+    if not (is_owner or head_organizer_role):
+        await interaction.response.send_message(
+            "❌ Only **Bot Owner** or **Head Organizer** can configure player info.", ephemeral=True
+        )
         return
-        
+
     global PLAYER_INFO_LINK, PLAYER_INFO_FORMAT
     PLAYER_INFO_LINK = link
-    PLAYER_INFO_FORMAT = format
+    PLAYER_INFO_FORMAT = format.value
     save_config()
-    
-    await interaction.response.send_message(f"✅ Player Information Config Updated!\n**Link:** {link}\n**Format:** {format}", ephemeral=True)
+
+    # Show the expected sheet column headers based on format
+    is_1v1 = (format.value == "1 vs 1")
+    if is_1v1:
+        col_preview = "• Player Discord ID\n• Player Game Name\n• Player Game ID\n• Player Title"
+    else:
+        size = int(format.value.split()[0])
+        col_preview = "• Team Name\n• Captain Discord ID | Captain Game Name | Captain Game ID | Captain Title"
+        for n in range(2, size + 1):
+            col_preview += f"\n• Player {n} Discord ID | Player {n} Game Name | Player {n} Game ID | Player {n} Title"
+
+    embed = discord.Embed(
+        title="✅ Player Info Config Updated",
+        color=discord.Color.green(),
+        timestamp=discord.utils.utcnow()
+    )
+    embed.add_field(name="📊 Format", value=f"**{format.value}**", inline=True)
+    embed.add_field(name="🔗 Sheet Link", value=f"[Open Sheet]({link})", inline=True)
+    embed.add_field(name="📋 Expected Sheet Columns", value=col_preview, inline=False)
+    embed.set_footer(text=f"{ORGANIZATION_NAME} • Configured by {interaction.user.display_name}")
+    await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
 # ── Column name sets for player-info lookup ──────────────────────────────────
-# The bot searches for these header names (case-insensitive, strips whitespace).
-# 1 vs 1 sheet columns:
-#   Player Discord ID | Player Game Name | Player Game ID | Player Title
-# 2v2-5v5 sheet columns:
-#   Team Name | Captain Discord ID | Captain Game Name | Captain Game ID | Captain Title
-#   Player 2 Discord ID | Player 2 Game Name | Player 2 Game ID | Player 2 Title
-#   Player 3 Discord ID | ... (and so on up to Player 5)
-
 _1V1_FIELDS = [
     "Player Discord ID",
     "Player Game Name",
@@ -4320,21 +4414,20 @@ _TEAM_PLAYER_FIELDS_TEMPLATE = [
     "Player {n} Title",
 ]
 
-def _build_team_fields(format_str: str) -> list[str]:
+def _build_team_fields(format_str: str) -> list:
     """Return the ordered field list for a given team format string (e.g. '3 vs 3')."""
     try:
-        size = int(format_str.split()[0])  # '5 vs 5' → 5
+        size = int(format_str.split()[0])
     except (ValueError, IndexError):
         size = 5
-    fields = list(_TEAM_CAPTAIN_FIELDS)  # captain is slot 1
-    for n in range(2, size + 1):          # slots 2..size
+    fields = list(_TEAM_CAPTAIN_FIELDS)
+    for n in range(2, size + 1):
         for tmpl in _TEAM_PLAYER_FIELDS_TEMPLATE:
             fields.append(tmpl.format(n=n))
     return fields
 
-
-def _col_index(header: list[str], name: str) -> int:
-    """Return the column index for *name* (case-insensitive match), or -1 if not found."""
+def _col_index(header: list, name: str) -> int:
+    """Return the column index for name (case-insensitive), or -1 if not found."""
     name_lower = name.lower().strip()
     for i, h in enumerate(header):
         if h.lower().strip() == name_lower:
@@ -4342,49 +4435,44 @@ def _col_index(header: list[str], name: str) -> int:
     return -1
 
 
-@tree.command(name="player_information", description="Fetch player/team information based on format")
-@app_commands.describe(
-    user="The player or captain to look up"
-)
+@tree.command(name="player_information", description="Look up player or team info from the configured Google Sheet")
+@app_commands.describe(user="The player or team captain to look up")
 async def player_information(interaction: discord.Interaction, user: discord.Member):
-    """Fetches structured player / team info from the configured Google Sheet.
-
-    1 vs 1  → shows: Player Discord ID, Player Game Name, Player Game ID, Player Title
-    2-5 vs  → shows: Team Name, Captain fields, Player 2-N fields
+    """Fetches structured player/team info from the configured Google Sheet.
+    1 vs 1  -> Player Discord ID, Game Name, Game ID, Title
+    2-5 vs  -> Team Name, Captain fields, Player 2-N fields (grouped per player)
     """
     await interaction.response.defer()
 
     if not PLAYER_INFO_LINK:
         await interaction.followup.send(
-            "❌ Player info sheet link is not configured. Ask the owner to use `/config_player_info`.",
+            "❌ Player info sheet is not configured yet. Ask an organizer to run `/config_player_info`.",
             ephemeral=True
         )
         return
 
     sheet_match = re.search(r'/d/([a-zA-Z0-9-_]+)', PLAYER_INFO_LINK)
     if not sheet_match:
-        await interaction.followup.send("❌ Invalid Google Sheet link configured.", ephemeral=True)
+        await interaction.followup.send("❌ Invalid Google Sheet link in config.", ephemeral=True)
         return
 
     sheet_id = sheet_match.group(1)
     url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv"
 
     try:
-        headers_http = {"User-Agent": "Mozilla/5.0"}
-        resp = requests.get(url, headers=headers_http, timeout=15)
+        resp = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=15)
         resp.raise_for_status()
-        reader = csv.reader(io.StringIO(resp.text))
+        rows = list(csv.reader(io.StringIO(resp.text)))
 
-        rows = list(reader)
         if not rows:
-            await interaction.followup.send("❌ The sheet is empty.", ephemeral=True)
+            await interaction.followup.send("❌ The player info sheet is empty.", ephemeral=True)
             return
 
         header = rows[0]
         user_id_str = str(user.id)
         user_mention = f"<@{user.id}>"
 
-        # ── Find the row that contains this user's Discord ID ──────────────────
+        # Find the row matching this user's Discord ID
         found_row = None
         for row in rows[1:]:
             for cell in row:
@@ -4397,57 +4485,122 @@ async def player_information(interaction: discord.Interaction, user: discord.Mem
 
         if found_row is None:
             await interaction.followup.send(
-                f"❌ Could not find {user.mention} in the player information sheet.",
+                f"❌ {user.mention} was not found in the player information sheet.\n"
+                f"Make sure their Discord ID is recorded in the sheet.",
                 ephemeral=True
             )
             return
 
-        # ── Build the embed using only the relevant fields ────────────────────
         is_1v1 = (PLAYER_INFO_FORMAT == "1 vs 1")
-        desired_fields = _1V1_FIELDS if is_1v1 else _build_team_fields(PLAYER_INFO_FORMAT)
 
+        # ── 1 vs 1 Layout ──────────────────────────────────────────────────────
         if is_1v1:
-            embed_title = f"🎮 Player Information — {ORGANIZATION_NAME}"
-            embed_desc = f"Player details for {user.mention}  |  Format: **{PLAYER_INFO_FORMAT}**"
-        else:
-            embed_title = f"🏆 Team Information — {ORGANIZATION_NAME}"
-            embed_desc = f"Team details for {user.mention}  |  Format: **{PLAYER_INFO_FORMAT}**"
-
-        embed = discord.Embed(
-            title=embed_title,
-            description=embed_desc,
-            color=discord.Color(BRAND_COLOR),
-            timestamp=discord.utils.utcnow()
-        )
-        embed.set_thumbnail(url=user.display_avatar.url)
-
-        found_any = False
-        for field_name in desired_fields:
-            col = _col_index(header, field_name)
-            if col == -1:
-                # Column doesn't exist in this sheet — skip silently
-                continue
-            raw_val = found_row[col].strip() if col < len(found_row) else ""
-            if not raw_val:
-                raw_val = "—"   # em-dash placeholder for empty cells
-
-            # Format Discord IDs as mentions
-            if "discord id" in field_name.lower() and raw_val.isdigit():
-                raw_val = f"<@{raw_val}>"
-
-            embed.add_field(name=field_name, value=raw_val, inline=True)
-            found_any = True
-
-        if not found_any:
-            embed.add_field(
-                name="⚠️ No Matching Columns",
-                value=(
-                    "The sheet headers don't match the expected format.\n"
-                    "Make sure the column names exactly match:\n"
-                    + ", ".join(desired_fields)
-                ),
-                inline=False
+            embed = discord.Embed(
+                title=f"🎮 Player Information",
+                description=f"{user.mention}\n**Format:** {PLAYER_INFO_FORMAT}",
+                color=discord.Color(BRAND_COLOR),
+                timestamp=discord.utils.utcnow()
             )
+            embed.set_thumbnail(url=user.display_avatar.url)
+
+            found_any = False
+            for field_name in _1V1_FIELDS:
+                col = _col_index(header, field_name)
+                if col == -1:
+                    continue
+                val = found_row[col].strip() if col < len(found_row) else ""
+                if not val:
+                    val = "—"
+                if "discord id" in field_name.lower() and val.isdigit():
+                    val = f"<@{val}>"
+                label = field_name.replace("Player ", "")
+                embed.add_field(name=label, value=val, inline=True)
+                found_any = True
+
+            if not found_any:
+                embed.add_field(
+                    name="⚠️ Column Mismatch",
+                    value=f"Expected columns: `{'` | `'.join(_1V1_FIELDS)}`",
+                    inline=False
+                )
+
+        # ── Team Layout (2v2 – 5v5) ───────────────────────────────────────────
+        else:
+            try:
+                team_size = int(PLAYER_INFO_FORMAT.split()[0])
+            except Exception:
+                team_size = 5
+
+            embed = discord.Embed(
+                title=f"🏆 Team Information",
+                description=f"Captain: {user.mention}\n**Format:** {PLAYER_INFO_FORMAT}",
+                color=discord.Color(BRAND_COLOR),
+                timestamp=discord.utils.utcnow()
+            )
+            embed.set_thumbnail(url=user.display_avatar.url)
+
+            found_any = False
+
+            # Team Name (full width)
+            tn_col = _col_index(header, "Team Name")
+            if tn_col != -1:
+                tn_val = found_row[tn_col].strip() if tn_col < len(found_row) else "—"
+                embed.add_field(name="🏷️ Team Name", value=tn_val or "—", inline=False)
+                found_any = True
+
+            # Captain block
+            cap_block = []
+            for fname in ["Captain Discord ID", "Captain Game Name", "Captain Game ID", "Captain Title"]:
+                col = _col_index(header, fname)
+                if col == -1:
+                    continue
+                val = found_row[col].strip() if col < len(found_row) else "—"
+                if not val:
+                    val = "—"
+                if "discord id" in fname.lower() and val.isdigit():
+                    val = f"<@{val}>"
+                label = fname.replace("Captain ", "")
+                cap_block.append(f"**{label}:** {val}")
+                found_any = True
+            if cap_block:
+                embed.add_field(name="👑 Captain", value="\n".join(cap_block), inline=False)
+
+            # Add a blank spacer
+            embed.add_field(name="\u200b", value="\u200b", inline=False)
+
+            # Each additional player as their own inline block
+            for n in range(2, team_size + 1):
+                player_block = []
+                for tmpl in _TEAM_PLAYER_FIELDS_TEMPLATE:
+                    fname = tmpl.format(n=n)
+                    col = _col_index(header, fname)
+                    if col == -1:
+                        continue
+                    val = found_row[col].strip() if col < len(found_row) else "—"
+                    if not val:
+                        val = "—"
+                    if "discord id" in fname.lower() and val.isdigit():
+                        val = f"<@{val}>"
+                    label = fname.replace(f"Player {n} ", "")
+                    player_block.append(f"**{label}:** {val}")
+                    found_any = True
+                if player_block:
+                    embed.add_field(
+                        name=f"🎮 Player {n}",
+                        value="\n".join(player_block),
+                        inline=True
+                    )
+
+            if not found_any:
+                embed.add_field(
+                    name="⚠️ Column Mismatch",
+                    value=(
+                        "Sheet headers don't match expected format.\n"
+                        "Expected: `Team Name`, `Captain Discord ID`, `Captain Game Name`, "
+                        "`Captain Game ID`, `Captain Title`, `Player 2 Discord ID`, ..."
+                    ),
+                    inline=False
+                )
 
         embed.set_footer(text=f"{ORGANIZATION_NAME} • Player Info • Requested by {interaction.user.display_name}")
         await interaction.followup.send(embed=embed)
@@ -4455,6 +4608,7 @@ async def player_information(interaction: discord.Interaction, user: discord.Mem
     except Exception as e:
         await interaction.followup.send(f"❌ Error fetching player info: {str(e)}", ephemeral=True)
         print(f"[player_information] Error: {e}")
+
 
 if __name__ == "__main__":
     # Get Discord token from environment
