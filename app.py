@@ -1340,6 +1340,11 @@ async def send_ten_minute_reminder(event_id: str, team1_captain: discord.Member,
             if stored_team2:
                 resolved_team2_captain = stored_team2
 
+        # Get correct IDs formatting defensively (handles both Member objects and raw IDs)
+        t1_id = getattr(resolved_team1_captain, 'id', resolved_team1_captain)
+        t2_id = getattr(resolved_team2_captain, 'id', resolved_team2_captain)
+        j_id = getattr(resolved_judge, 'id', resolved_judge) if resolved_judge else None
+
         # Create reminder embed
         embed = discord.Embed(
             title="⏰ 10-MINUTE MATCH REMINDER",
@@ -1348,16 +1353,11 @@ async def send_ten_minute_reminder(event_id: str, team1_captain: discord.Member,
             timestamp=discord.utils.utcnow()
         )
         embed.add_field(name="🕒 Match Time", value=f"<t:{int(match_time.timestamp())}:F>", inline=False)
-        embed.add_field(name="👥 Team Captains", value=f"<@{resolved_team1_captain.id}> vs <@{resolved_team2_captain.id}>", inline=False)
-        if resolved_judge:
-            embed.add_field(name="👨‍⚖️ Judge", value=f"<@{resolved_judge.id}>", inline=False)
-        embed.add_field(name="� ActAion Required", value="Please prepare for the match and join the designated channel.", inline=False)
+        embed.add_field(name="👥 Team Captains", value=f"<@{t1_id}> vs <@{t2_id}>", inline=False)
+        if j_id:
+            embed.add_field(name="👨‍⚖️ Judge", value=f"<@{j_id}>", inline=False)
+        embed.add_field(name="📝 Action Required", value="Please prepare for the match and join the designated channel.", inline=False)
         embed.set_footer(text="Tournament Management System")
-
-        # Get correct IDs formatting defensively
-        t1_id = getattr(resolved_team1_captain, 'id', resolved_team1_captain)
-        t2_id = getattr(resolved_team2_captain, 'id', resolved_team2_captain)
-        j_id = getattr(resolved_judge, 'id', resolved_judge) if resolved_judge else None
 
         # Send notification with pings
         pings = f"<@{t1_id}> <@{t2_id}>"
@@ -1575,6 +1575,8 @@ def get_font_with_fallbacks(font_name: str, size: int, font_style: str = "regula
         # Default local fonts for other font requests
         local_fonts = [
             str(Path("Fonts") / "capture_it" / "Capture it.ttf"),
+            str(Path("Fonts") / "square_one_2" / "Square One.ttf"),
+            str(Path("Fonts") / "square_one_2" / "Square One Bold.ttf"),
             str(Path("Fonts") / "ds_digital" / "DS-DIGIB.TTF"),
             str(Path("Fonts") / "ds_digital" / "DS-DIGII.TTF"),
             str(Path("Fonts") / "ds_digital" / "DS-DIGI.TTF"),
@@ -1612,9 +1614,10 @@ def get_font_with_fallbacks(font_name: str, size: int, font_style: str = "regula
             continue
     
     # Final fallback to default font
-    print(f"All fonts failed, using default font for size {size}")
+    print(f"All fonts failed, using default font")
     try:
-        return ImageFont.load_default().font_variant(size=size)
+        # Pillow 10.1.0+ supports size in load_default
+        return ImageFont.load_default(size=size)
     except:
         return ImageFont.load_default()
 
@@ -3674,21 +3677,30 @@ async def event_edit(
         # Save updated events
         save_scheduled_events()
         
+        # Get updated event details for public posting and reminders
+        # This handles cases where arguments might be None but event_to_edit has data
+        t1_cap = event_to_edit.get('team1_captain')
+        t2_cap = event_to_edit.get('team2_captain')
+        
         # Schedule the 10-minute reminder with updated event data
         try:
-            await schedule_ten_minute_reminder(event_id, team1_captain, team2_captain, event_to_edit.get('judge'), interaction.channel, new_datetime)
+            await schedule_ten_minute_reminder(event_id, t1_cap, t2_cap, event_to_edit.get('judge'), interaction.channel, new_datetime)
         except Exception as e:
             print(f"Error scheduling reminder for updated event {event_id}: {e}")
         
-        # Get updated event details for public posting
-        team1_captain = event_to_edit.get('team1_captain')
-        team2_captain = event_to_edit.get('team2_captain')
         round_info = event_to_edit.get('round', 'Unknown')
         tournament_info = event_to_edit.get('tournament', 'Unknown')
         time_info_display = event_to_edit.get('time_str', 'Unknown')
         date_info_display = event_to_edit.get('date_str', 'Unknown')
         group_info = event_to_edit.get('group', '')
         
+        # Resolve mentions/names safely for display (handles both Member objects and IDs)
+        t1_mention = f"<@{t1_cap.id}>" if hasattr(t1_cap, 'id') else f"<@{t1_cap}>" if t1_cap else "Unknown"
+        t1_name = getattr(t1_cap, 'name', 'Unknown') if hasattr(t1_cap, 'name') else "Unknown"
+        
+        t2_mention = f"<@{t2_cap.id}>" if hasattr(t2_cap, 'id') else f"<@{t2_cap}>" if t2_cap else "Unknown"
+        t2_name = getattr(t2_cap, 'name', 'Unknown') if hasattr(t2_cap, 'name') else "Unknown"
+
         # Create public embed for updated event (similar to event-create)
         embed = discord.Embed(
             title="📝 Event Updated",
@@ -3700,8 +3712,8 @@ async def event_edit(
         # Event Details Section
         embed.add_field(
             name="📋 Updated Event Details", 
-            value=f"**Team 1 Captain:** {team1_captain.mention if team1_captain else 'Unknown'} `@{team1_captain.name if team1_captain else 'Unknown'}`\n"
-                  f"**Team 2 Captain:** {team2_captain.mention if team2_captain else 'Unknown'} `@{team2_captain.name if team2_captain else 'Unknown'}`\n"
+            value=f"**Team 1 Captain:** {t1_mention} `@{t1_name}`\n"
+                  f"**Team 2 Captain:** {t2_mention} `@{t2_name}`\n"
                   f"**UTC Time:** {time_info_display}\n"
                   f"**Local Time:** <t:{int(new_datetime.timestamp())}:F> (<t:{int(new_datetime.timestamp())}:R>)\n"
                   f"**Round:** {round_info}\n"
@@ -3722,8 +3734,8 @@ async def event_edit(
         
         # Captains Section
         captains_text = f"**Captains**\n"
-        captains_text += f"▪ Team1 Captain: {team1_captain.mention if team1_captain else 'Unknown'} `@{team1_captain.name if team1_captain else 'Unknown'}`\n"
-        captains_text += f"▪ Team2 Captain: {team2_captain.mention if team2_captain else 'Unknown'} `@{team2_captain.name if team2_captain else 'Unknown'}`"
+        captains_text += f"▪ Team 1 Captain: {t1_mention} `@{t1_name}`\n"
+        captains_text += f"▪ Team 2 Captain: {t2_mention} `@{t2_name}`"
         embed.add_field(name="", value=captains_text, inline=False)
         
         embed.set_footer(text=f"Event Updated • {ORGANIZATION_NAME}")
