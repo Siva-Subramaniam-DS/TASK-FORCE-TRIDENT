@@ -1392,7 +1392,14 @@ async def schedule_ten_minute_reminder(event_id: str, team1_captain: discord.Mem
                 ev_data = scheduled_events[event_id]
                 if not ev_data.get('judge'):
                     try:
-                        await event_channel.send(f"⚠️ <@&{ROLE_IDS.get('judge', '')}> **URGENT:** A match is starting in 20 minutes and NO JUDGE is assigned! Please Take Schedule!")
+                        # Send to schedule channel instead of event channel as requested
+                        schedule_channel_id = CHANNEL_IDS.get('take_schedule')
+                        schedule_channel = bot.get_channel(schedule_channel_id)
+                        if schedule_channel:
+                            await schedule_channel.send(f"⚠️ <@&{ROLE_IDS.get('judge', '')}> **URGENT:** A match is starting in 20 minutes and NO JUDGE is assigned! Please Take Schedule!")
+                        else:
+                            # Fallback to event channel if schedule channel not found
+                            await event_channel.send(f"⚠️ <@&{ROLE_IDS.get('judge', '')}> **URGENT:** A match is starting in 20 minutes and NO JUDGE is assigned! Please Take Schedule!")
                     except Exception as e:
                         print(f"Failed to send 20 min reminder: {e}")
             
