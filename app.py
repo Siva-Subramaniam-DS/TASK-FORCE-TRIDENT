@@ -4670,6 +4670,8 @@ async def player_information(interaction: discord.Interaction, user: discord.Mem
                     val = "—"
                 if "discord id" in field_name.lower() and val.isdigit():
                     val = f"<@{val}>"
+                elif val != "—":
+                    val = f"`{val}`"
                 label = field_name.replace("Player ", "")
                 embed.add_field(name=label, value=val, inline=True)
                 found_any = True
@@ -4716,6 +4718,8 @@ async def player_information(interaction: discord.Interaction, user: discord.Mem
                     val = "—"
                 if "discord id" in fname.lower() and val.isdigit():
                     val = f"<@{val}>"
+                elif val != "—":
+                    val = f"`{val}`"
                 label = fname.replace("Captain ", "")
                 cap_block.append(f"**{label}:** {val}")
                 found_any = True
@@ -4738,6 +4742,8 @@ async def player_information(interaction: discord.Interaction, user: discord.Mem
                         val = "—"
                     if "discord id" in fname.lower() and val.isdigit():
                         val = f"<@{val}>"
+                    elif val != "—":
+                        val = f"`{val}`"
                     label = fname.replace(f"Player {n} ", "")
                     player_block.append(f"**{label}:** {val}")
                     found_any = True
@@ -4759,7 +4765,59 @@ async def player_information(interaction: discord.Interaction, user: discord.Mem
                     inline=False
                 )
 
-        # Extract data for ID card
+        embed.set_footer(text=f"{ORGANIZATION_NAME} • Player Info • Requested by {interaction.user.display_name}")
+        await interaction.followup.send(embed=embed)
+
+    except Exception as e:
+        await interaction.followup.send(f"❌ Error fetching player info: {str(e)}", ephemeral=True)
+        print(f"[player_information] Error: {e}")
+
+
+@tree.command(name="id-card", description="Generate a Clan ID Card")
+@app_commands.describe(user="The player or team captain to generate ID card for")
+async def id_card(interaction: discord.Interaction, user: discord.Member):
+    """Fetches user data and generates a Clan ID card"""
+    await interaction.response.defer()
+    
+    if not PLAYER_INFO_LINK:
+        await interaction.followup.send("❌ Player info sheet is not configured yet. Ask an organizer to run `/config_player_info`.", ephemeral=True)
+        return
+        
+    sheet_match = re.search(r'/d/([a-zA-Z0-9-_]+)', PLAYER_INFO_LINK)
+    if not sheet_match:
+        await interaction.followup.send("❌ Invalid Google Sheet link in config.", ephemeral=True)
+        return
+        
+    sheet_id = sheet_match.group(1)
+    url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv"
+    
+    try:
+        resp = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=15)
+        resp.raise_for_status()
+        rows = list(csv.reader(io.StringIO(resp.text)))
+        
+        if not rows:
+            await interaction.followup.send("❌ The player info sheet is empty.", ephemeral=True)
+            return
+            
+        header = rows[0]
+        user_id_str = str(user.id)
+        user_mention = f"<@{user.id}>"
+        
+        found_row = None
+        for row in rows[1:]:
+            for cell in row:
+                cell_clean = cell.strip()
+                if user_id_str in cell_clean or user_mention in cell_clean:
+                    found_row = row
+                    break
+            if found_row:
+                break
+                
+        if found_row is None:
+            await interaction.followup.send(f"❌ {user.mention} was not found in the sheet.", ephemeral=True)
+            return
+
         def get_val(*keys):
             for key in keys:
                 col = _col_index(header, key)
@@ -4782,20 +4840,16 @@ async def player_information(interaction: discord.Interaction, user: discord.Mem
         }
         
         id_card_bytes = create_id_card_image(user_data, user)
-        files = []
         if id_card_bytes:
-            files.append(discord.File(id_card_bytes, filename="id_card.png"))
-            embed.set_image(url="attachment://id_card.png")
-
-        embed.set_footer(text=f"{ORGANIZATION_NAME} • Player Info • Requested by {interaction.user.display_name}")
-        if files:
-            await interaction.followup.send(embed=embed, files=files)
+            file = discord.File(id_card_bytes, filename="id_card.png")
+            await interaction.followup.send(content=f"**Clan ID Card for {user.mention}**", file=file)
         else:
-            await interaction.followup.send(embed=embed)
-
+            await interaction.followup.send("❌ Failed to generate ID card image.", ephemeral=True)
+            
     except Exception as e:
-        await interaction.followup.send(f"❌ Error fetching player info: {str(e)}", ephemeral=True)
-        print(f"[player_information] Error: {e}")
+        await interaction.followup.send(f"❌ Error generating ID card: {str(e)}", ephemeral=True)
+        print(f"[id_card] Error: {e}")
+
 
 
 if __name__ == "__main__":
