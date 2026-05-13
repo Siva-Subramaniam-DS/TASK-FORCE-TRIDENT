@@ -4836,12 +4836,53 @@ async def id_card(interaction: discord.Interaction, user: discord.Member):
             'screenshot_url': get_val('Game Profile Screenshot ( from Google drive image )', 'Game Profile Screenshot', 'Screenshot', 'screenshot')
         }
         
-        id_card_bytes = create_id_card_image(user_data, user)
-        if id_card_bytes:
-            file = discord.File(id_card_bytes, filename="id_card.png")
-            await interaction.followup.send(content=f"**Clan ID Card for {user.mention}**", file=file)
+        embed = discord.Embed(
+            title="🆔 ICF Clan ID Card",
+            description=f"**{user_data.get('game_name') or user.display_name}**'s Clan ID Card",
+            color=0xFFD700
+        )
+        embed.set_thumbnail(url=user.display_avatar.url)
+        
+        embed.add_field(name="Discord Name", value=user_data.get('discord_tag') or str(user), inline=True)
+        embed.add_field(name="Discord ID", value=user_data.get('discord_id') or str(user.id), inline=True)
+        embed.add_field(name="\u200b", value="\u200b", inline=True)
+        
+        embed.add_field(name="Game Name", value=user_data.get('game_name') or "N/A", inline=True)
+        embed.add_field(name="Game ID", value=user_data.get('game_id') or "N/A", inline=True)
+        embed.add_field(name="\u200b", value="\u200b", inline=True)
+        
+        embed.add_field(name="Real Name", value=user_data.get('real_name') or "N/A", inline=True)
+        embed.add_field(name="Country", value=user_data.get('country') or "N/A", inline=True)
+        embed.add_field(name="Title", value=user_data.get('title') or "N/A", inline=True)
+        
+        embed.add_field(name="Level", value=user_data.get('level') or "N/A", inline=True)
+        embed.add_field(name="Status", value=user_data.get('status') or "N/A", inline=True)
+        embed.add_field(name="\u200b", value="\u200b", inline=True)
+        
+        embed.timestamp = discord.utils.utcnow()
+        embed.set_footer(text="ICF Tournament Bot")
+        
+        screenshot_url = user_data.get('screenshot_url')
+        file = None
+        if screenshot_url:
+            try:
+                if "drive.google.com" in screenshot_url:
+                    screenshot_url = convert_google_drive_url(screenshot_url)
+                
+                img_resp = requests.get(screenshot_url, timeout=10)
+                if img_resp.status_code == 200:
+                    file = discord.File(io.BytesIO(img_resp.content), filename="screenshot.png")
+                    embed.set_image(url="attachment://screenshot.png")
+                else:
+                    embed.set_image(url=screenshot_url)
+            except Exception as e:
+                print(f"[id_card] Error fetching screenshot: {e}")
+                embed.set_image(url=screenshot_url)
+                
+        if file:
+            await interaction.followup.send(embed=embed, file=file)
         else:
-            await interaction.followup.send("❌ Failed to generate ID card image.", ephemeral=True)
+            await interaction.followup.send(embed=embed)
             
     except Exception as e:
         await interaction.followup.send(f"❌ Error generating ID card: {str(e)}", ephemeral=True)
