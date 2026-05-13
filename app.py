@@ -4778,12 +4778,9 @@ async def player_information(interaction: discord.Interaction, user: discord.Mem
 async def id_card(interaction: discord.Interaction, user: discord.Member):
     """Fetches user data and generates a Clan ID card"""
     await interaction.response.defer()
+    clan_sheet_link = "https://docs.google.com/spreadsheets/d/1yo-AhuWRIG0wbZypFmk77jPzq7KrFMrDIPHLayxeMhA/edit?usp=sharing"
     
-    if not PLAYER_INFO_LINK:
-        await interaction.followup.send("❌ Player info sheet is not configured yet. Ask an organizer to run `/config_player_info`.", ephemeral=True)
-        return
-        
-    sheet_match = re.search(r'/d/([a-zA-Z0-9-_]+)', PLAYER_INFO_LINK)
+    sheet_match = re.search(r'/d/([a-zA-Z0-9-_]+)', clan_sheet_link)
     if not sheet_match:
         await interaction.followup.send("❌ Invalid Google Sheet link in config.", ephemeral=True)
         return
