@@ -1392,14 +1392,8 @@ async def schedule_ten_minute_reminder(event_id: str, team1_captain: discord.Mem
                 ev_data = scheduled_events[event_id]
                 if not ev_data.get('judge'):
                     try:
-                        # Send to schedule channel instead of event channel as requested
-                        schedule_channel_id = CHANNEL_IDS.get('take_schedule')
-                        schedule_channel = bot.get_channel(schedule_channel_id)
-                        if schedule_channel:
-                            await schedule_channel.send(f"⚠️ <@&{ROLE_IDS.get('judge', '')}> **URGENT:** A match is starting in 20 minutes and NO JUDGE is assigned! Please Take Schedule!")
-                        else:
-                            # Fallback to event channel if schedule channel not found
-                            await event_channel.send(f"⚠️ <@&{ROLE_IDS.get('judge', '')}> **URGENT:** A match is starting in 20 minutes and NO JUDGE is assigned! Please Take Schedule!")
+                        # Send to event channel instead of schedule channel
+                        await event_channel.send(f"⚠️ <@&{ROLE_IDS.get('judge', '')}> **URGENT:** A match is starting in 20 minutes and NO JUDGE is assigned! Please Take Schedule!")
                     except Exception as e:
                         print(f"Failed to send 20 min reminder: {e}")
             
@@ -4453,6 +4447,150 @@ def _col_index(header: list, name: str) -> int:
             return i
     return -1
 
+def convert_google_drive_url(url: str) -> str:
+    """Convert Google Drive sharing URL to direct image URL"""
+    if not url:
+        return None
+    url = url.strip()
+    if url.endswith(('.png', '.jpg', '.jpeg', '.gif', '.webp')):
+        return url
+    file_id = None
+    file_id_match = re.search(r'/d/([a-zA-Z0-9-_]+)', url)
+    if file_id_match:
+        file_id = file_id_match.group(1)
+    if not file_id:
+        id_match = re.search(r'[?&]id=([a-zA-Z0-9-_]+)', url)
+        if id_match:
+            file_id = id_match.group(1)
+    if not file_id:
+        folder_match = re.search(r'/folders/([a-zA-Z0-9-_]+)', url)
+        if folder_match:
+            file_id = folder_match.group(1)
+    if file_id:
+        return f"https://drive.google.com/uc?export=view&id={file_id}"
+    return url
+
+def create_id_card_image(user_data: dict, discord_user: discord.Member) -> io.BytesIO:
+    """Create an ID card image with user information"""
+    try:
+        card_width = 800
+        card_height = 500
+        img = Image.new('RGB', (card_width, card_height), color='#1a1a2e')
+        draw = ImageDraw.Draw(img)
+        for i in range(card_height):
+            r = int(26 + (i / card_height) * 10)
+            g = int(26 + (i / card_height) * 20)
+            b = int(46 + (i / card_height) * 30)
+            draw.rectangle([(0, i), (card_width, i + 1)], fill=(r, g, b))
+        
+        border_width = 4
+        draw.rectangle(
+            [(border_width, border_width), (card_width - border_width, card_height - border_width)],
+            outline='#FFD700',
+            width=border_width
+        )
+        
+        title_font = get_font_with_fallbacks("Arial", 40, "bold")
+        heading_font = get_font_with_fallbacks("Arial", 24, "bold")
+        text_font = get_font_with_fallbacks("Arial", 20)
+        small_font = get_font_with_fallbacks("Arial", 16)
+        
+        header_y = 20
+        draw.text((card_width // 2, header_y), "ICF CLAN ID CARD", fill='#FFD700', font=title_font, anchor='mt')
+        
+        logo_size = 150
+        logo_x = 50
+        logo_y = 100
+        logo_path = "Logo_ICF_2025_400.png"
+        try:
+            if os.path.exists(logo_path):
+                logo_img = Image.open(logo_path)
+                if logo_img.mode != 'RGBA':
+                    logo_img = logo_img.convert('RGBA')
+                logo_img.thumbnail((logo_size, logo_size), Image.Resampling.LANCZOS)
+                logo_width, logo_height = logo_img.size
+                logo_paste_x = logo_x + (logo_size - logo_width) // 2
+                logo_paste_y = logo_y + (logo_size - logo_height) // 2
+                if logo_img.mode == 'RGBA':
+                    img.paste(logo_img, (logo_paste_x, logo_paste_y), logo_img)
+                else:
+                    img.paste(logo_img, (logo_paste_x, logo_paste_y))
+                draw.rectangle(
+                    [(logo_x - 2, logo_y - 2), (logo_x + logo_size + 2, logo_y + logo_size + 2)],
+                    outline='#FFD700',
+                    width=2
+                )
+            else:
+                draw.rectangle([(logo_x, logo_y), (logo_x + logo_size, logo_y + logo_size)], outline='#FFD700', width=3)
+                draw.text((logo_x + logo_size // 2, logo_y + logo_size // 2), "ICF", fill='#FFD700', font=heading_font, anchor='mm')
+        except Exception:
+            draw.rectangle([(logo_x, logo_y), (logo_x + logo_size, logo_y + logo_size)], outline='#FFD700', width=3)
+            draw.text((logo_x + logo_size // 2, logo_y + logo_size // 2), "ICF", fill='#FFD700', font=heading_font, anchor='mm')
+        
+        screenshot_size = 120
+        screenshot_x = logo_x
+        screenshot_y = logo_y + logo_size + 20
+        if user_data.get('screenshot_url'):
+            try:
+                screenshot_url = convert_google_drive_url(user_data['screenshot_url'])
+                screenshot_response = requests.get(screenshot_url, timeout=10)
+                if screenshot_response.status_code == 200:
+                    screenshot_img = Image.open(io.BytesIO(screenshot_response.content)).convert('RGB')
+                    screenshot_img = screenshot_img.resize((screenshot_size, screenshot_size), Image.Resampling.LANCZOS)
+                    img.paste(screenshot_img, (screenshot_x, screenshot_y))
+                    draw.rectangle(
+                        [(screenshot_x - 2, screenshot_y - 2), (screenshot_x + screenshot_size + 2, screenshot_y + screenshot_size + 2)],
+                        outline='#FFD700', width=2
+                    )
+            except Exception as e:
+                print(f"Error loading screenshot: {e}")
+        
+        info_x = 250
+        info_y = 120
+        line_height = 40
+        current_y = info_y
+        
+        draw.text((info_x, current_y), "Discord Tag:", fill='#FFD700', font=heading_font)
+        draw.text((info_x + 180, current_y), user_data.get('discord_tag', 'N/A') or 'N/A', fill='#FFFFFF', font=text_font)
+        current_y += line_height
+        
+        draw.text((info_x, current_y), "Game Name:", fill='#FFD700', font=heading_font)
+        draw.text((info_x + 180, current_y), user_data.get('game_name', 'N/A') or 'N/A', fill='#FFFFFF', font=text_font)
+        current_y += line_height
+        
+        draw.text((info_x, current_y), "Game ID:", fill='#FFD700', font=heading_font)
+        draw.text((info_x + 180, current_y), str(user_data.get('game_id', 'N/A') or 'N/A'), fill='#FFFFFF', font=text_font)
+        current_y += line_height
+        
+        if user_data.get('real_name'):
+            draw.text((info_x, current_y), "Real Name:", fill='#FFD700', font=heading_font)
+            draw.text((info_x + 180, current_y), user_data.get('real_name', 'N/A'), fill='#FFFFFF', font=text_font)
+            current_y += line_height
+        
+        if user_data.get('country'):
+            draw.text((info_x, current_y), "Country:", fill='#FFD700', font=heading_font)
+            draw.text((info_x + 180, current_y), user_data.get('country', 'N/A'), fill='#FFFFFF', font=text_font)
+            current_y += line_height
+        
+        if user_data.get('title'):
+            draw.text((info_x, current_y), "Title:", fill='#FFD700', font=heading_font)
+            draw.text((info_x + 180, current_y), user_data.get('title', 'N/A'), fill='#FFFFFF', font=text_font)
+            current_y += line_height
+        
+        draw.text((info_x, current_y), "Level:", fill='#FFD700', font=heading_font)
+        draw.text((info_x + 180, current_y), str(user_data.get('level', 'N/A') or 'N/A'), fill='#FFFFFF', font=text_font)
+        
+        footer_y = card_height - 30
+        draw.text((card_width // 2, footer_y), "ICF Tournament Bot", fill='#888888', font=small_font, anchor='mt')
+        
+        img_bytes = io.BytesIO()
+        img.save(img_bytes, format='PNG')
+        img_bytes.seek(0)
+        return img_bytes
+    except Exception as e:
+        print(f"Error creating ID card image: {e}")
+        return None
+
 
 @tree.command(name="player_information", description="Look up player or team info from the configured Google Sheet")
 @app_commands.describe(user="The player or team captain to look up")
@@ -4621,8 +4759,39 @@ async def player_information(interaction: discord.Interaction, user: discord.Mem
                     inline=False
                 )
 
+        # Extract data for ID card
+        def get_val(*keys):
+            for key in keys:
+                col = _col_index(header, key)
+                if col != -1 and col < len(found_row):
+                    val = found_row[col].strip()
+                    if val: return val
+            return ''
+            
+        user_data = {
+            'discord_tag': get_val('Discord tag', 'Discord Tag', 'DiscordTag') or str(user),
+            'discord_id': get_val('Discord ID', 'DiscordID', 'discord id', 'Captain Discord ID'),
+            'game_id': get_val('Game ID', 'GameID', 'game id', 'Captain Game ID'),
+            'game_name': get_val('Game Name', 'GameName', 'game name', 'Captain Game Name'),
+            'real_name': get_val('Real Life Name', 'RealName', 'Real Name'),
+            'country': get_val('Country', 'country'),
+            'title': get_val('Title', 'title', 'Captain Title'),
+            'level': get_val('Level', 'level'),
+            'status': get_val('Status', 'status'),
+            'screenshot_url': get_val('Game Profile Screenshot ( from Google drive image )', 'Game Profile Screenshot', 'Screenshot', 'screenshot')
+        }
+        
+        id_card_bytes = create_id_card_image(user_data, user)
+        files = []
+        if id_card_bytes:
+            files.append(discord.File(id_card_bytes, filename="id_card.png"))
+            embed.set_image(url="attachment://id_card.png")
+
         embed.set_footer(text=f"{ORGANIZATION_NAME} • Player Info • Requested by {interaction.user.display_name}")
-        await interaction.followup.send(embed=embed)
+        if files:
+            await interaction.followup.send(embed=embed, files=files)
+        else:
+            await interaction.followup.send(embed=embed)
 
     except Exception as e:
         await interaction.followup.send(f"❌ Error fetching player info: {str(e)}", ephemeral=True)
