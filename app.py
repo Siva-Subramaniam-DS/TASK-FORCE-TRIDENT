@@ -526,7 +526,7 @@ COMMAND_DATA = {
         "commands": [
             {
                 "name": "/time",
-                "description": "Generate a random match time between 12:00-17:59 UTC",
+                "description": "Generate a random match time from 30-min slots between 10:00-19:00 UTC",
                 "usage": "/time",
                 "permissions": "everyone",
                 "example": "Use `/time` to get a random tournament match time"
@@ -2998,35 +2998,48 @@ async def event_result(
     except Exception as e:
         print(f"Error scheduling auto-cleanup after results: {e}")
 
-@tree.command(name="time", description="Get a random match time from fixed 30-min slots (12:00-17:00 UTC)")
+@tree.command(name="time", description="Get a random match time from fixed 30-min slots (10:00-19:00 UTC)")
 async def time(interaction: discord.Interaction):
-    """Pick a random time from 30-minute slots between 12:00 and 17:00 UTC and show all slots."""
+    """Pick a random time from 30-minute slots between 10:00 and 19:00 UTC and show all slots."""
     
     import random
     
-    # Build fixed 30-minute slots from 12:00 to 17:00 (inclusive), excluding 17:30
+    # Fixed 30-minute slots from 10:00 to 19:00 UTC (19:00 inclusive, no 19:30)
     slots = [
-        f"{hour:02d}:{minute:02d} UTC"
-        for hour in range(12, 18)
-        for minute in (0, 30)
-        if not (hour == 17 and minute == 30)
+        "10:00 UTC", "10:30 UTC",
+        "11:00 UTC", "11:30 UTC",
+        "12:00 UTC", "12:30 UTC",
+        "13:00 UTC", "13:30 UTC",
+        "14:00 UTC", "14:30 UTC",
+        "15:00 UTC", "15:30 UTC",
+        "16:00 UTC", "16:30 UTC",
+        "17:00 UTC", "17:30 UTC",
+        "18:00 UTC", "18:30 UTC",
+        "19:00 UTC",
     ]
     
     chosen_time = random.choice(slots)
     
+    slots_display = "  ".join(slots)
+    
     embed = discord.Embed(
         title="⏰ Match Time (30‑min slots)",
-        description=f"**Your random match time:** {chosen_time}",
+        description=f"**Your random match time:** `{chosen_time}`",
         color=discord.Color.blue(),
         timestamp=discord.utils.utcnow()
-                    )
-                                       
+    )
+
     embed.add_field(
-        name="🕒 Range",
-        value="From 12:00 to 17:00 UTC (every 30 minutes)",
+        name="🕒 Available Slots",
+        value=slots_display,
         inline=False
     )
-                    
+    embed.add_field(
+        name="📅 Range",
+        value="From **10:00** to **19:00 UTC** (every 30 minutes)",
+        inline=False
+    )
+
     embed.set_footer(text=f"Match Time Generator • {ORGANIZATION_NAME}")
     
     await interaction.response.send_message(embed=embed)
