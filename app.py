@@ -4496,12 +4496,12 @@ def create_id_card_image(user_data: dict, discord_user: discord.Member) -> io.By
         small_font = get_font_with_fallbacks("Arial", 16)
         
         header_y = 20
-        draw.text((card_width // 2, header_y), "ICF CLAN ID CARD", fill='#FFD700', font=title_font, anchor='mt')
+        draw.text((card_width // 2, header_y), "TASK FORCE TRIDENT ID CARD", fill='#FFD700', font=title_font, anchor='mt')
         
         logo_size = 150
         logo_x = 50
         logo_y = 100
-        logo_path = "Logo_ICF_2025_400.png"
+        logo_path = "TFT Logo.png"
         try:
             if os.path.exists(logo_path):
                 logo_img = Image.open(logo_path)
@@ -4522,10 +4522,10 @@ def create_id_card_image(user_data: dict, discord_user: discord.Member) -> io.By
                 )
             else:
                 draw.rectangle([(logo_x, logo_y), (logo_x + logo_size, logo_y + logo_size)], outline='#FFD700', width=3)
-                draw.text((logo_x + logo_size // 2, logo_y + logo_size // 2), "ICF", fill='#FFD700', font=heading_font, anchor='mm')
+                draw.text((logo_x + logo_size // 2, logo_y + logo_size // 2), "TFT", fill='#FFD700', font=heading_font, anchor='mm')
         except Exception:
             draw.rectangle([(logo_x, logo_y), (logo_x + logo_size, logo_y + logo_size)], outline='#FFD700', width=3)
-            draw.text((logo_x + logo_size // 2, logo_y + logo_size // 2), "ICF", fill='#FFD700', font=heading_font, anchor='mm')
+            draw.text((logo_x + logo_size // 2, logo_y + logo_size // 2), "TFT", fill='#FFD700', font=heading_font, anchor='mm')
         
         screenshot_size = 120
         screenshot_x = logo_x
@@ -4581,7 +4581,7 @@ def create_id_card_image(user_data: dict, discord_user: discord.Member) -> io.By
         draw.text((info_x + 180, current_y), str(user_data.get('level', 'N/A') or 'N/A'), fill='#FFFFFF', font=text_font)
         
         footer_y = card_height - 30
-        draw.text((card_width // 2, footer_y), "ICF Tournament Bot", fill='#888888', font=small_font, anchor='mt')
+        draw.text((card_width // 2, footer_y), "Task Force Trident Tournament Bot", fill='#888888', font=small_font, anchor='mt')
         
         img_bytes = io.BytesIO()
         img.save(img_bytes, format='PNG')
@@ -4791,6 +4791,7 @@ async def id_card(interaction: discord.Interaction, user: discord.Member):
     try:
         resp = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=15)
         resp.raise_for_status()
+        resp.encoding = 'utf-8'  # Force UTF-8 so special characters from the sheet are decoded correctly
         rows = list(csv.reader(io.StringIO(resp.text)))
         
         if not rows:
@@ -4837,7 +4838,7 @@ async def id_card(interaction: discord.Interaction, user: discord.Member):
         }
         
         embed = discord.Embed(
-            title="🆔 ICF Clan ID Card",
+            title="🆔 Task Force Trident ID Card",
             description=f"**{user_data.get('game_name') or user.display_name}**'s Clan ID Card",
             color=0xFFD700
         )
@@ -4860,7 +4861,7 @@ async def id_card(interaction: discord.Interaction, user: discord.Member):
         embed.add_field(name="\u200b", value="\u200b", inline=True)
         
         embed.timestamp = discord.utils.utcnow()
-        embed.set_footer(text="ICF Tournament Bot")
+        embed.set_footer(text="Task Force Trident Tournament Bot")
         
         screenshot_url = user_data.get('screenshot_url')
         file = None
