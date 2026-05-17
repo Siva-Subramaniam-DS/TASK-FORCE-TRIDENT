@@ -4227,6 +4227,107 @@ async def publish_rules(interaction: discord.Interaction):
         
     await interaction.response.send_modal(RulesModal())
 
+
+# ===========================================================================================
+# REGISTRATION COMMAND
+# ===========================================================================================
+
+REGISTRATION_CHANNEL_ID = 1500279086579322920  # #registration channel
+
+class RegistrationView(discord.ui.View):
+    """Persistent view with a 'Register' link button"""
+    def __init__(self, form_url: str):
+        super().__init__(timeout=None)
+        self.add_item(
+            discord.ui.Button(
+                label="Register",
+                style=discord.ButtonStyle.link,
+                url=form_url,
+                emoji="🔗"
+            )
+        )
+
+class RegistrationModal(discord.ui.Modal, title='Post Tournament Registration'):
+    tournament_name = discord.ui.TextInput(
+        label='Tournament Name',
+        style=discord.TextStyle.short,
+        placeholder='e.g., Frigate Master S1',
+        required=True,
+        max_length=100
+    )
+    form_url = discord.ui.TextInput(
+        label='Google Form Registration Link',
+        style=discord.TextStyle.short,
+        placeholder='https://docs.google.com/forms/...',
+        required=True,
+        max_length=500
+    )
+
+    async def on_submit(self, interaction: discord.Interaction):
+        # Validate that the URL looks reasonable
+        url = self.form_url.value.strip()
+        if not (url.startswith('http://') or url.startswith('https://')):
+            await interaction.response.send_message(
+                "❌ Please enter a valid URL starting with `https://`.",
+                ephemeral=True
+            )
+            return
+
+        tournament = self.tournament_name.value.strip()
+
+        # Fetch the registration channel
+        channel = interaction.guild.get_channel(REGISTRATION_CHANNEL_ID)
+        if not channel:
+            await interaction.response.send_message(
+                f"❌ Could not find the Registration channel (ID: `{REGISTRATION_CHANNEL_ID}`).",
+                ephemeral=True
+            )
+            return
+
+        # Build the registration embed (mirrors the sample image layout)
+        embed = discord.Embed(
+            title="Registration",
+            description=(
+                f"Here is the registration form for the tournament **{tournament}** "
+                f"and be sure to read the [Rules]({LINK_RULES})"
+            ),
+            color=discord.Color(BRAND_COLOR),
+            timestamp=discord.utils.utcnow()
+        )
+        embed.set_footer(text=f"{ORGANIZATION_NAME} | Posted by {interaction.user.name}")
+
+        view = RegistrationView(url)
+
+        try:
+            await channel.send(embed=embed, view=view)
+            await interaction.response.send_message(
+                f"✅ Registration post has been successfully published in {channel.mention}!",
+                ephemeral=True
+            )
+        except discord.Forbidden:
+            await interaction.response.send_message(
+                f"❌ I don't have permission to send messages in {channel.mention}.",
+                ephemeral=True
+            )
+        except Exception as e:
+            await interaction.response.send_message(
+                f"❌ An error occurred while posting: {e}",
+                ephemeral=True
+            )
+
+
+@tree.command(name='registration', description='Post tournament registration with a Google Form link to the registration channel')
+async def registration_command(interaction: discord.Interaction):
+    """Open a modal to post registration info to the #registration channel"""
+    if not (has_event_create_permission(interaction) or interaction.user.id == BOT_OWNER_ID):
+        await interaction.response.send_message(
+            "❌ You need **Head Organizer**, **Head Helper**, or **Helper Team** role to post registration.",
+            ephemeral=True
+        )
+        return
+    await interaction.response.send_modal(RegistrationModal())
+
+
 async def auto_create_open_tickets(guild: discord.Guild, user: discord.Member):
     # Automatic background ticket creation for open matches
     if not (BRACKET_LINK and BRACKET_API_KEY and GOOGLE_SHEET_LINK):
