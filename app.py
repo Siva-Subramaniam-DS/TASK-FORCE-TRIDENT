@@ -4738,14 +4738,13 @@ async def player_information(interaction: discord.Interaction, user: discord.Mem
 
     if not PLAYER_INFO_LINK:
         await interaction.followup.send(
-            "❌ Player info sheet is not configured yet. Ask an organizer to run `/config_player_info`.",
-            ephemeral=True
+            "❌ Player info sheet is not configured yet. Ask an organizer to run `/config_player_info`."
         )
         return
 
     sheet_match = re.search(r'/d/([a-zA-Z0-9-_]+)', PLAYER_INFO_LINK)
     if not sheet_match:
-        await interaction.followup.send("❌ Invalid Google Sheet link in config.", ephemeral=True)
+        await interaction.followup.send("❌ Invalid Google Sheet link in config.")
         return
 
     sheet_id = sheet_match.group(1)
@@ -4758,7 +4757,7 @@ async def player_information(interaction: discord.Interaction, user: discord.Mem
         rows = list(csv.reader(io.StringIO(resp.text)))
 
         if not rows:
-            await interaction.followup.send("❌ The player info sheet is empty.", ephemeral=True)
+            await interaction.followup.send("❌ The player info sheet is empty.")
             return
 
         header = rows[0]
@@ -4779,8 +4778,7 @@ async def player_information(interaction: discord.Interaction, user: discord.Mem
         if found_row is None:
             await interaction.followup.send(
                 f"❌ {user.mention} was not found in the player information sheet.\n"
-                f"Make sure their Discord ID is recorded in the sheet.",
-                ephemeral=True
+                f"Make sure their Discord ID is recorded in the sheet."
             )
             return
 
@@ -4788,13 +4786,12 @@ async def player_information(interaction: discord.Interaction, user: discord.Mem
 
         # ── 1 vs 1 Layout ──────────────────────────────────────────────────────
         if is_1v1:
-            embed = discord.Embed(
-                title=f"🎮 Player Information",
-                description=f"{user.mention}\n**Format:** {PLAYER_INFO_FORMAT}",
-                color=discord.Color(BRAND_COLOR),
-                timestamp=discord.utils.utcnow()
-            )
-            embed.set_thumbnail(url=user.display_avatar.url)
+            text_lines = [
+                "🎮 **PLAYER INFORMATION**",
+                f"Player: {user.mention}",
+                f"**Format:** {PLAYER_INFO_FORMAT}",
+                "───────────────────────────"
+            ]
 
             found_any = False
             aliases_map_1v1 = {
@@ -4846,15 +4843,15 @@ async def player_information(interaction: discord.Interaction, user: discord.Mem
                     emoji = "🎖️ "
                     label = "Title"
 
-                embed.add_field(name=f"{emoji}{label}", value=val, inline=True)
+                text_lines.append(f"{emoji}**{label}:** {val}")
                 found_any = True
 
             if not found_any:
-                embed.add_field(
-                    name="⚠️ Column Mismatch",
-                    value=f"Expected columns: `{'` | `'.join(_1V1_FIELDS)}`",
-                    inline=False
-                )
+                text_lines.append(f"⚠️ **Column Mismatch:** Expected columns like `{'` | `'.join(_1V1_FIELDS)}`")
+
+            text_lines.append("───────────────────────────")
+            text_lines.append(f"*{ORGANIZATION_NAME} • Player Info • Requested by {interaction.user.display_name}*")
+            await interaction.followup.send("\n".join(text_lines))
 
         # ── Team Layout (2v2 – 5v5) ───────────────────────────────────────────
         else:
@@ -4865,17 +4862,16 @@ async def player_information(interaction: discord.Interaction, user: discord.Mem
             except Exception:
                 team_size = 5
 
-            embed = discord.Embed(
-                title=f"🏆 Team Information",
-                description=f"Captain: {user.mention}\n**Format:** {PLAYER_INFO_FORMAT}",
-                color=discord.Color(BRAND_COLOR),
-                timestamp=discord.utils.utcnow()
-            )
-            embed.set_thumbnail(url=user.display_avatar.url)
+            text_lines = [
+                "🏆 **TEAM INFORMATION**",
+                f"Captain: {user.mention}",
+                f"**Format:** {PLAYER_INFO_FORMAT}",
+                "───────────────────────────"
+            ]
 
             found_any = False
 
-            # Team Name (full width)
+            # Team Name
             tn_col = _col_index(header, "Team Name")
             if tn_col == -1:
                 for alias in ["teamname", "team", "clan name", "clan"]:
@@ -4884,7 +4880,8 @@ async def player_information(interaction: discord.Interaction, user: discord.Mem
                         break
             if tn_col != -1:
                 tn_val = found_row[tn_col].strip() if tn_col < len(found_row) else "—"
-                embed.add_field(name="🏷️ Team Name", value=tn_val or "—", inline=False)
+                text_lines.append(f"🏷️ **Team Name:** {tn_val or '—'}")
+                text_lines.append("")
                 found_any = True
 
             # Captain block
@@ -4940,14 +4937,13 @@ async def player_information(interaction: discord.Interaction, user: discord.Mem
 
                 cap_block.append(f"{emoji}**{label}:** {val}")
                 found_any = True
+            
             if cap_block:
-                embed.add_field(name="👑 Captain", value="\n".join(cap_block), inline=False)
+                text_lines.append("👑 **Captain**")
+                text_lines.extend(cap_block)
+                text_lines.append("")
 
-            # Add a blank spacer if captain info is found
-            if cap_block:
-                embed.add_field(name="\u200b", value="\u200b", inline=False)
-
-            # Each additional player as their own inline block
+            # Each additional player
             for n in range(2, team_size + 1):
                 player_block = []
                 for tmpl in _TEAM_PLAYER_FIELDS_TEMPLATE:
@@ -5004,29 +5000,25 @@ async def player_information(interaction: discord.Interaction, user: discord.Mem
 
                     player_block.append(f"{emoji}**{label}:** {val}")
                     found_any = True
+                
                 if player_block:
-                    embed.add_field(
-                        name=f"👥 Player {n}",
-                        value="\n".join(player_block),
-                        inline=True
-                    )
+                    text_lines.append(f"👥 **Player {n}**")
+                    text_lines.extend(player_block)
+                    text_lines.append("")
 
             if not found_any:
-                embed.add_field(
-                    name="⚠️ Column Mismatch",
-                    value=(
-                        "Sheet headers don't match expected format.\n"
-                        "Expected: `Team Name`, `Captain Discord ID`, `Captain Game Name`, "
-                        "`Captain Game ID`, `Captain Title`, `Player 2 Discord ID`, ..."
-                    ),
-                    inline=False
-                )
+                text_lines.append("⚠️ **Column Mismatch:** Sheet headers don't match expected format.")
 
-        embed.set_footer(text=f"{ORGANIZATION_NAME} • Player Info • Requested by {interaction.user.display_name}")
-        await interaction.followup.send(embed=embed)
+            # Trim trailing empty lines
+            while text_lines and text_lines[-1] == "":
+                text_lines.pop()
+
+            text_lines.append("───────────────────────────")
+            text_lines.append(f"*{ORGANIZATION_NAME} • Player Info • Requested by {interaction.user.display_name}*")
+            await interaction.followup.send("\n".join(text_lines))
 
     except Exception as e:
-        await interaction.followup.send(f"❌ Error fetching player info: {str(e)}", ephemeral=True)
+        await interaction.followup.send(f"❌ Error fetching player info: {str(e)}")
         print(f"[player_information] Error: {e}")
 
 
