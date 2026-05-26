@@ -4754,6 +4754,7 @@ async def player_information(interaction: discord.Interaction, user: discord.Mem
     try:
         resp = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=15)
         resp.raise_for_status()
+        resp.encoding = 'utf-8'  # Force UTF-8 so special characters from the sheet are decoded correctly
         rows = list(csv.reader(io.StringIO(resp.text)))
 
         if not rows:
@@ -4816,12 +4817,36 @@ async def player_information(interaction: discord.Interaction, user: discord.Mem
                 val = found_row[col].strip() if col < len(found_row) else ""
                 if not val:
                     val = "—"
-                if "discord id" in field_name.lower() and val.isdigit():
-                    val = f"<@{val}>"
+                
+                # Format value properly (do not backtick-wrap if it's already a mention)
+                if ("discord id" in field_name.lower() or "discord_id" in field_name.lower()) and val != "—":
+                    digits_match = re.search(r'\d+', val)
+                    if digits_match:
+                        val = f"<@{digits_match.group()}>"
+                    elif val.isdigit():
+                        val = f"<@{val}>"
+                    else:
+                        val = f"`{val}`"
                 elif val != "—":
                     val = f"`{val}`"
+
+                # Emoji and Label mapping for premium UI
                 label = field_name.replace("Player ", "")
-                embed.add_field(name=label, value=val, inline=True)
+                emoji = ""
+                if "discord id" in field_name.lower():
+                    emoji = "👤 "
+                    label = "Discord ID"
+                elif "game name" in field_name.lower():
+                    emoji = "🎮 "
+                    label = "Game Name"
+                elif "game id" in field_name.lower():
+                    emoji = "🆔 "
+                    label = "Game ID"
+                elif "title" in field_name.lower():
+                    emoji = "🎖️ "
+                    label = "Title"
+
+                embed.add_field(name=f"{emoji}{label}", value=val, inline=True)
                 found_any = True
 
             if not found_any:
@@ -4884,12 +4909,36 @@ async def player_information(interaction: discord.Interaction, user: discord.Mem
                 val = found_row[col].strip() if col < len(found_row) else "—"
                 if not val:
                     val = "—"
-                if "discord id" in fname.lower() and val.isdigit():
-                    val = f"<@{val}>"
+                
+                # Format value properly (do not backtick-wrap if it's already a mention)
+                if ("discord id" in fname.lower() or "discord_id" in fname.lower()) and val != "—":
+                    digits_match = re.search(r'\d+', val)
+                    if digits_match:
+                        val = f"<@{digits_match.group()}>"
+                    elif val.isdigit():
+                        val = f"<@{val}>"
+                    else:
+                        val = f"`{val}`"
                 elif val != "—":
                     val = f"`{val}`"
+
+                # Emoji and Label mapping for premium UI
                 label = fname.replace("Captain ", "")
-                cap_block.append(f"**{label}:** {val}")
+                emoji = ""
+                if "discord id" in fname.lower():
+                    emoji = "👤 "
+                    label = "Discord ID"
+                elif "game name" in fname.lower():
+                    emoji = "🎮 "
+                    label = "Game Name"
+                elif "game id" in fname.lower():
+                    emoji = "🆔 "
+                    label = "Game ID"
+                elif "title" in fname.lower():
+                    emoji = "🎖️ "
+                    label = "Title"
+
+                cap_block.append(f"{emoji}**{label}:** {val}")
                 found_any = True
             if cap_block:
                 embed.add_field(name="👑 Captain", value="\n".join(cap_block), inline=False)
@@ -4924,16 +4973,40 @@ async def player_information(interaction: discord.Interaction, user: discord.Mem
                     val = found_row[col].strip() if col < len(found_row) else "—"
                     if not val:
                         val = "—"
-                    if "discord id" in fname.lower() and val.isdigit():
-                        val = f"<@{val}>"
+                    
+                    # Format value properly (do not backtick-wrap if it's already a mention)
+                    if ("discord id" in fname.lower() or "discord_id" in fname.lower()) and val != "—":
+                        digits_match = re.search(r'\d+', val)
+                        if digits_match:
+                            val = f"<@{digits_match.group()}>"
+                        elif val.isdigit():
+                            val = f"<@{val}>"
+                        else:
+                            val = f"`{val}`"
                     elif val != "—":
                         val = f"`{val}`"
+
+                    # Emoji and Label mapping for premium UI
                     label = fname.replace(f"Player {n} ", "")
-                    player_block.append(f"**{label}:** {val}")
+                    emoji = ""
+                    if "discord id" in fname.lower():
+                        emoji = "👤 "
+                        label = "Discord ID"
+                    elif "game name" in fname.lower():
+                        emoji = "🎮 "
+                        label = "Game Name"
+                    elif "game id" in fname.lower():
+                        emoji = "🆔 "
+                        label = "Game ID"
+                    elif "title" in fname.lower():
+                        emoji = "🎖️ "
+                        label = "Title"
+
+                    player_block.append(f"{emoji}**{label}:** {val}")
                     found_any = True
                 if player_block:
                     embed.add_field(
-                        name=f"🎮 Player {n}",
+                        name=f"👥 Player {n}",
                         value="\n".join(player_block),
                         inline=True
                     )
