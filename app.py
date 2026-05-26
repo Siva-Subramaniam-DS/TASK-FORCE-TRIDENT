@@ -4554,11 +4554,32 @@ def _build_team_fields(format_str: str) -> list:
     return fields
 
 def _col_index(header: list, name: str) -> int:
-    """Return the column index for name (case-insensitive), or -1 if not found."""
-    name_lower = name.lower().strip()
+    """Return the column index for name (case-insensitive, normalized spaces), or -1 if not found."""
+    if not name:
+        return -1
+    
+    # 1. Normalize spaces of the target name
+    name_clean = " ".join(name.lower().split())
+    
+    # Try exact match after space normalization
     for i, h in enumerate(header):
-        if h.lower().strip() == name_lower:
+        h_clean = " ".join(h.lower().split())
+        if h_clean == name_clean:
             return i
+            
+    # 2. Try substring match (e.g. if the header has extra text or trailing whitespace)
+    for i, h in enumerate(header):
+        h_clean = " ".join(h.lower().split())
+        if name_clean in h_clean:
+            return i
+            
+    # 3. Try removing all spaces as a fallback (e.g. "player2discordid" vs "player 2 discord id")
+    name_nospace = "".join(name_clean.split())
+    for i, h in enumerate(header):
+        h_nospace = "".join(h.lower().split())
+        if name_nospace in h_nospace:
+            return i
+            
     return -1
 
 def convert_google_drive_url(url: str) -> str:
@@ -4775,8 +4796,21 @@ async def player_information(interaction: discord.Interaction, user: discord.Mem
             embed.set_thumbnail(url=user.display_avatar.url)
 
             found_any = False
+            aliases_map_1v1 = {
+                "Player Discord ID": ["discord id", "player discord", "discord tag", "discord name", "discord"],
+                "Player Game Name": ["game name", "player name", "ign", "in-game name", "player ign"],
+                "Player Game ID": ["game id", "player game id", "player id", "uid", "riot id"],
+                "Player Title": ["title", "player title", "rank", "role"]
+            }
+
             for field_name in _1V1_FIELDS:
+                aliases = aliases_map_1v1.get(field_name, [])
                 col = _col_index(header, field_name)
+                if col == -1:
+                    for alias in aliases:
+                        col = _col_index(header, alias)
+                        if col != -1:
+                            break
                 if col == -1:
                     continue
                 val = found_row[col].strip() if col < len(found_row) else ""
@@ -4800,7 +4834,9 @@ async def player_information(interaction: discord.Interaction, user: discord.Mem
         # ── Team Layout (2v2 – 5v5) ───────────────────────────────────────────
         else:
             try:
-                team_size = int(PLAYER_INFO_FORMAT.split()[0])
+                # Find the first number in the format string (e.g. "3 vs 3" -> 3, "4vs4" -> 4)
+                match = re.search(r'\d+', PLAYER_INFO_FORMAT)
+                team_size = int(match.group()) if match else 5
             except Exception:
                 team_size = 5
 
@@ -4816,6 +4852,11 @@ async def player_information(interaction: discord.Interaction, user: discord.Mem
 
             # Team Name (full width)
             tn_col = _col_index(header, "Team Name")
+            if tn_col == -1:
+                for alias in ["teamname", "team", "clan name", "clan"]:
+                    tn_col = _col_index(header, alias)
+                    if tn_col != -1:
+                        break
             if tn_col != -1:
                 tn_val = found_row[tn_col].strip() if tn_col < len(found_row) else "—"
                 embed.add_field(name="🏷️ Team Name", value=tn_val or "—", inline=False)
@@ -4823,8 +4864,21 @@ async def player_information(interaction: discord.Interaction, user: discord.Mem
 
             # Captain block
             cap_block = []
+            aliases_map_captain = {
+                "Captain Discord ID": ["captain discord", "captain id", "discord id", "captain", "captain's discord", "discord tag"],
+                "Captain Game Name": ["captain ign", "captain game name", "captain name", "captain's ign", "captain's name", "game name", "ign"],
+                "Captain Game ID": ["captain game id", "captain uid", "captain's game id", "game id", "uid"],
+                "Captain Title": ["captain title", "captain rank", "captain's title", "title", "rank"]
+            }
+
             for fname in ["Captain Discord ID", "Captain Game Name", "Captain Game ID", "Captain Title"]:
+                aliases = aliases_map_captain.get(fname, [])
                 col = _col_index(header, fname)
+                if col == -1:
+                    for alias in aliases:
+                        col = _col_index(header, alias)
+                        if col != -1:
+                            break
                 if col == -1:
                     continue
                 val = found_row[col].strip() if col < len(found_row) else "—"
@@ -4840,15 +4894,31 @@ async def player_information(interaction: discord.Interaction, user: discord.Mem
             if cap_block:
                 embed.add_field(name="👑 Captain", value="\n".join(cap_block), inline=False)
 
-            # Add a blank spacer
-            embed.add_field(name="\u200b", value="\u200b", inline=False)
+            # Add a blank spacer if captain info is found
+            if cap_block:
+                embed.add_field(name="\u200b", value="\u200b", inline=False)
 
             # Each additional player as their own inline block
             for n in range(2, team_size + 1):
                 player_block = []
                 for tmpl in _TEAM_PLAYER_FIELDS_TEMPLATE:
                     fname = tmpl.format(n=n)
+                    aliases = []
+                    if "Discord ID" in fname:
+                        aliases = [f"player{n} discord id", f"player {n} discord", f"player {n} id", f"player{n} id", f"p{n} discord id", f"p{n} discord", f"player {n}"]
+                    elif "Game Name" in fname:
+                        aliases = [f"player{n} game name", f"player {n} ign", f"player {n} name", f"player{n} ign", f"p{n} game name", f"p{n} ign", f"p{n} name"]
+                    elif "Game ID" in fname:
+                        aliases = [f"player{n} game id", f"player {n} game id", f"player {n} uid", f"player{n} uid", f"p{n} game id", f"p{n} uid"]
+                    elif "Title" in fname:
+                        aliases = [f"player{n} title", f"player {n} rank", f"player{n} rank", f"p{n} title", f"p{n} rank"]
+
                     col = _col_index(header, fname)
+                    if col == -1:
+                        for alias in aliases:
+                            col = _col_index(header, alias)
+                            if col != -1:
+                                break
                     if col == -1:
                         continue
                     val = found_row[col].strip() if col < len(found_row) else "—"
