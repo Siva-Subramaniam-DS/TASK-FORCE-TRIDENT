@@ -508,130 +508,193 @@ def set_rules_content(content, user_id, username):
 # Command data structure for help system
 COMMAND_DATA = {
     "system": {
-        "title": "⚙️ System Commands",
-        "description": "Basic bot functionality available to all users",
+        "title": "⚙️ System & Stats",
+        "description": "Core bot commands and statistics",
         "commands": [
             {
                 "name": "/help",
-                "description": "Display this comprehensive command guide with role-based filtering",
+                "description": "Display this comprehensive guide with role-based filtering",
                 "usage": "/help",
                 "permissions": "everyone",
-                "example": "Simply type `/help` to see available commands"
+                "example": "`/help`"
             },
+            {
+                "name": "/info",
+                "description": "Display bot information, ping, and server stats",
+                "usage": "/info",
+                "permissions": "everyone",
+                "example": "`/info`"
+            },
+            {
+                "name": "/staff-leaderboard",
+                "description": "Show top judges and recorders activity",
+                "usage": "/staff-leaderboard",
+                "permissions": "everyone",
+                "example": "`/staff-leaderboard`"
+            }
         ]
     },
-    "utility": {
-        "title": "🛠️ Utility Commands",
-        "description": "Helpful tools for tournament management",
+    "player": {
+        "title": "🎮 Player Commands",
+        "description": "Lookup stats, generate cards, or roll maps",
         "commands": [
             {
-                "name": "/time",
-                "description": "Generate a random match time from 30-min slots between 10:00-19:00 UTC",
-                "usage": "/time",
+                "name": "/player_information",
+                "description": "Look up player/team info from Google Sheet",
+                "usage": "/player_information user:<@member>",
                 "permissions": "everyone",
-                "example": "Use `/time` to get a random tournament match time"
+                "example": "`/player_information user:@Roxanne`"
+            },
+            {
+                "name": "/id-card",
+                "description": "Generate custom Clan ID card with your profile info",
+                "usage": "/id-card user:<@member>",
+                "permissions": "everyone",
+                "example": "`/id-card user:@Mm`"
+            },
+            {
+                "name": "/maps",
+                "description": "Randomly select 3, 5, or 7 maps for gameplay",
+                "usage": "/maps pool:[3/5/7]",
+                "permissions": "everyone",
+                "example": "`/maps pool:3`"
             },
             {
                 "name": "/choose",
                 "description": "Make a random choice from comma-separated options",
-                "usage": "/choose options:<option1,option2,option3>",
+                "usage": "/choose options:<option1,option2,...>",
                 "permissions": "everyone",
-                "example": "Example: `/choose options:Map1,Map2,Map3` to randomly select a map"
+                "example": "`/choose options:MapA,MapB,MapC`"
+            },
+            {
+                "name": "/time",
+                "description": "Generate a random tournament match time slot",
+                "usage": "/time",
+                "permissions": "everyone",
+                "example": "`/time`"
+            }
+        ]
+    },
+    "judge": {
+        "title": "👨‍⚖️ Judge Commands",
+        "description": "Match officiating and scheduling commands",
+        "commands": [
+            {
+                "name": "Take Schedule Button",
+                "description": "Assign yourself as the official judge for a match announcement",
+                "usage": "Click the green 'Take Schedule' button in the schedule channel",
+                "permissions": "judge / head_organizer",
+                "example": "Check the match schedule channel"
+            },
+            {
+                "name": "/available_events",
+                "description": "List scheduled matches needing a judge assigned",
+                "usage": "/available_events",
+                "permissions": "judge / helper / organizer",
+                "example": "`/available_events`"
+            },
+            {
+                "name": "/event-result",
+                "description": "Record official match outcome, scores, and screenshot evidence",
+                "usage": "/event-result winner:<@user> winner_score:<score> loser:<@user> loser_score:<score> tournament:<name> round:<round> [group:<name>] [remarks:<text>] [screenshots:<1-11>]",
+                "permissions": "judge / organizer",
+                "example": "`/event-result winner:@Cap1 winner_score:2 loser:@Cap2 loser_score:1 tournament:Frigate S1 round:R1`"
+            },
+            {
+                "name": "/reassign",
+                "description": "Resign from an assigned match and notify other judges",
+                "usage": "/reassign",
+                "permissions": "judge / organizer",
+                "example": "Run in the specific match channel"
             }
         ]
     },
     "event_management": {
         "title": "🏆 Event Management",
-        "description": "Tournament event creation and management (requires special permissions)",
+        "description": "Match creation and scheduling tools",
         "commands": [
             {
                 "name": "/event-create",
-                "description": "Create new tournament events with Group support and Winner/Loser options",
+                "description": "Schedule a new match with group support",
                 "usage": "/event-create team_1_captain:<@user> team_2_captain:<@user> hour:<0-23> minute:<0-59> date:<1-31> month:<1-12> round:<round> tournament:<name> [group:<A-J/Winner/Loser>]",
-                "permissions": "head_organizer / head_helper / helper_team",
-                "example": "Example: `/event-create team_1_captain:@Captain1 team_2_captain:@Captain2 hour:15 minute:30 date:25 month:12 round:R1 tournament:Summer Cup group:Group A`",
-                "round_options": "R1, R2, R3, R4, R5, R6, R7, R8, R9, R10, Qualifier, Semi Final, 3rd Place, Final",
-                "group_options": "Group A, Group B, Group C, Group D, Group E, Group F, Group G, Group H, Group I, Group J, Winner, Loser"
+                "permissions": "helper / organizer",
+                "example": "`/event-create team_1_captain:@Cap1 team_2_captain:@Cap2 hour:18 minute:0 date:28 month:5 round:Qualifier tournament:TFT S1`"
             },
             {
                 "name": "/event-edit",
-                "description": "Edit existing events to correct mistakes with Group support and Winner/Loser options",
+                "description": "Edit details (captains, schedule, round, etc.) of an active match channel",
                 "usage": "/event-edit",
-                "permissions": "head_organizer / head_helper / helper_team",
-                "example": "Use `/event-edit` to select and modify any scheduled event with pre-filled current values including group assignments (Group A-J, Winner, Loser)"
-            },
-            {
-                "name": "/event-result",
-                "description": "Record match results with Group support and comprehensive tournament tracking",
-                "usage": "/event-result winner:<@user> winner_score:<score> loser:<@user> loser_score:<score> tournament:<name> round:<round> [group:<A-J/Winner/Loser>] [remarks:<text>] [screenshots:<1-11>]",
-                "permissions": "head_organizer / judge",
-                "example": "Use `/event-result` to record match outcomes with group information and screenshot evidence",
-                "round_options": "R1, R2, R3, R4, R5, R6, R7, R8, R9, R10, Qualifier, Semi Final, 3rd Place, Final",
-                "group_options": "Group A, Group B, Group C, Group D, Group E, Group F, Group G, Group H, Group I, Group J, Winner, Loser"
+                "permissions": "helper / organizer",
+                "example": "Run `/event-edit` inside the match ticket channel"
             },
             {
                 "name": "/event-delete",
-                "description": "Delete scheduled events (use with caution)",
+                "description": "Delete a scheduled match and its ticket channel (use with caution)",
                 "usage": "/event-delete",
-                "permissions": "head_organizer / head_helper / helper_team",
-                "example": "Use `/event-delete` and select from scheduled events to remove"
-            },
-            {
-                "name": "/available_events",
-                "description": "List all events without a judge assigned for easy management",
-                "usage": "/available_events",
-                "permissions": "head_organizer / head_helper / helper_team / judge",
-                "example": "Use `/available_events` to see which matches still need judges"
+                "permissions": "helper / organizer",
+                "example": "Run `/event-delete` inside the match ticket channel"
             },
             {
                 "name": "/exchange",
-                "description": "Exchange a Judge or Recorder for events in current channel",
+                "description": "Swap or change assigned Judge/Recorder for a match",
                 "usage": "/exchange role:[Judge/Recorder] old_user:<@user> new_user:<@user>",
-                "permissions": "head_organizer / head_helper / helper_team / judge",
-                "example": "Use `/exchange` to reassign staff for events in the current channel"
+                "permissions": "helper / organizer",
+                "example": "`/exchange role:Judge old_user:@Judge1 new_user:@Judge2`"
+            },
+            {
+                "name": "/add_captain",
+                "description": "Add two captains to a match channel and automatically rename it",
+                "usage": "/add_captain captain_1:<@user> captain_2:<@user> [team_1:<name>] [team_2:<name>]",
+                "permissions": "helper / organizer",
+                "example": "`/add_captain captain_1:@Cap1 captain_2:@Cap2`"
+            },
+            {
+                "name": "/general_tie_breaker",
+                "description": "Resolve ties between two teams using aggregate scores",
+                "usage": "/general_tie_breaker team1_score1:<n> team1_score2:<n> team2_score1:<n> team2_score2:<n>",
+                "permissions": "helper / organizer",
+                "example": "`/general_tie_breaker team1_score1:100 team1_score2:95 team2_score1:90 team2_score2:92`"
+            }
+        ]
+    },
+    "admin": {
+        "title": "⚙️ Admin & Setup",
+        "description": "Owner and Head Organizer system configurations",
+        "commands": [
+            {
+                "name": "/config_player_info",
+                "description": "Link the Google Sheet and match format for players",
+                "usage": "/config_player_info link:<url> format:<format>",
+                "permissions": "organizer / owner",
+                "example": "`/config_player_info link:https://docs.google.com/spreadsheets/d/123/edit format:3 vs 3`"
+            },
+            {
+                "name": "/registration",
+                "description": "Publish a Google Form registration embed with a direct button",
+                "usage": "/registration",
+                "permissions": "organizer / owner",
+                "example": "`/registration`"
+            },
+            {
+                "name": "/publish-rules",
+                "description": "Write and publish tournament rules directly to guidelines",
+                "usage": "/publish-rules",
+                "permissions": "organizer / owner",
+                "example": "`/publish-rules`"
+            },
+            {
+                "name": "/test_channels",
+                "description": "Run diagnostic check on bot permissions in configured channels",
+                "usage": "/test_channels",
+                "permissions": "organizer / owner",
+                "example": "`/test_channels`"
             },
             {
                 "name": "/staff-update",
-                "description": "Update a staff member's match count in the leaderboard",
+                "description": "Manually update staff stats/points on the leaderboard",
                 "usage": "/staff-update staff_member:<@user> role:[Judge/Recorder] action:[Add/Subtract/Set] amount:<number>",
-                "permissions": "head_organizer",
-                "example": "Use `/staff-update` to manually correct staff leaderboard statistics"
-            },
-        ]
-    },
-    "judge": {
-        "title": "👨‍⚖️ Judge Commands",
-        "description": "Special commands for tournament judges",
-        "commands": [
-            {
-                "name": "Take Schedule Button",
-                "description": "Click the 'Take Schedule' button on event posts to assign yourself as judge",
-                "usage": "Click button on event announcements",
-                "permissions": "judge / head_organizer",
-                "example": "Look for green 'Take Schedule' buttons in the schedule channel"
-            },
-            {
-                "name": "/unassigned_events",
-                "description": "Unassign yourself from a scheduled event you previously took",
-                "usage": "/unassigned_events",
-                "permissions": "judge / head_organizer",
-                "example": "Use `/unassigned_events` to drop a match you can no longer judge"
-            },
-            {
-                "name": "/available_events",
-                "description": "View events without assigned judges to help with scheduling",
-                "usage": "/available_events",
-                "permissions": "judge / head_organizer",
-                "example": "Use `/available_events` to see which matches need judges"
-            },
-            {
-                "name": "/event-result",
-                "description": "Record official match results with Group support and comprehensive tracking",
-                "usage": "/event-result winner:<@user> winner_score:<score> loser:<@user> loser_score:<score> tournament:<name> round:<round> [group:<A-J>] [remarks:<text>] [screenshots:<1-11>]",
-                "permissions": "judge / head_organizer",
-                "example": "Use after completing a match you judged to record the official result with group information and evidence",
-                "round_options": "R1, R2, R3, R4, R5, R6, R7, R8, R9, R10, Qualifier, Semi Final, 3rd Place, Final",
-                "group_options": "Group A, Group B, Group C, Group D, Group E, Group F, Group G, Group H, Group I, Group J"
+                "permissions": "organizer / owner",
+                "example": "`/staff-update staff_member:@Judge1 role:Judge action:Add amount:1`"
             }
         ]
     }
@@ -665,35 +728,41 @@ def filter_commands_by_permission(permission_level: str) -> dict:
     try:
         filtered_data = {}
         
-        # Always include system and utility commands for everyone
+        # Everyone gets system and player commands
         filtered_data["system"] = COMMAND_DATA["system"]
-        filtered_data["utility"] = COMMAND_DATA["utility"]
+        filtered_data["player"] = COMMAND_DATA["player"]
         
-        # Add role-specific commands based on permission level
-        if permission_level in ["owner", "organizer", "helper"]:
-            # Owners, organizers and helpers get all commands
+        # Role-specific commands
+        if permission_level in ["owner", "organizer"]:
+            # Bot Owner and Organizers get EVERYTHING
+            filtered_data["judge"] = COMMAND_DATA["judge"]
             filtered_data["event_management"] = COMMAND_DATA["event_management"]
+            filtered_data["admin"] = COMMAND_DATA["admin"]
+        elif permission_level == "helper":
+            # Helpers get Event Management and Judge commands, but not admin
             filtered_data["judge"] = COMMAND_DATA["judge"]
+            filtered_data["event_management"] = COMMAND_DATA["event_management"]
         elif permission_level == "judge":
-            # Judges get judge commands and can see some event management
+            # Judges get Judge commands, and a customized version of Event Management
             filtered_data["judge"] = COMMAND_DATA["judge"]
-            # Show limited event management (only event-result)
-            judge_event_commands = {
-                "title": "🏆 Event Management (Judge Access)",
-                "description": "Event commands available to judges",
-                "commands": [cmd for cmd in COMMAND_DATA["event_management"]["commands"] 
-                           if cmd["name"] == "/event-result"]
+            # Filter event management to show only what a judge can use
+            judge_event = {
+                "title": "🏆 Event Management (Judge)",
+                "description": "Event management commands available to judges",
+                "commands": [
+                    cmd for cmd in COMMAND_DATA["event_management"]["commands"]
+                    if cmd["name"] in ["/event-result", "/exchange"]
+                ]
             }
-            if judge_event_commands["commands"]:
-                filtered_data["event_management"] = judge_event_commands
-        
+            if judge_event["commands"]:
+                filtered_data["event_management"] = judge_event
+                
         return filtered_data
     except Exception as e:
         print(f"Error filtering commands by permission: {e}")
-        # Return basic commands as fallback
         return {
             "system": COMMAND_DATA["system"],
-            "utility": COMMAND_DATA["utility"]
+            "player": COMMAND_DATA["player"]
         }
 
 def build_help_embed(permission_level: str, user_name: str, bot_icon_url: str = None, user_icon_url: str = None, category_key: str = None) -> discord.Embed:
@@ -720,15 +789,16 @@ def build_help_embed(permission_level: str, user_name: str, bot_icon_url: str = 
         badge = badge_map.get(permission_level, "👤 Member")
 
         embed = discord.Embed(
-            title=f"📖 {category_data['title']}",
+            title=f"{category_data['title']}",
             description=(
-                f"**{TOURNAMENT_SYSTEM_NAME}**\n"
-                f"───────────────────────────\n"
+                f"⚓ **TASK FORCE TRIDENT — Command Hub**\n"
+                f"══════════════════════════════════════\n"
                 f"🔰 **Access Level:** {badge}\n"
                 f"📌 **Bracket:** [View Live Bracket]({LINK_BRACKET})\n"
-                f"📅 **Deadlines:** [View Schedule]({LINK_DEADLINE})\n"
+                f"⏰ **Deadlines:** [View Schedule]({LINK_DEADLINE})\n"
                 f"📜 **Rules:** [Read Rules]({LINK_RULES})\n\n"
-                f"**{category_data['description']}**"
+                f"**Category Description:** *{category_data['description']}*\n"
+                f"══════════════════════════════════════"
             ),
             color=discord.Color(BRAND_COLOR),
             timestamp=discord.utils.utcnow()
@@ -737,34 +807,32 @@ def build_help_embed(permission_level: str, user_name: str, bot_icon_url: str = 
         if bot_icon_url:
             embed.set_thumbnail(url=bot_icon_url)
 
-        commands_text = ""
         for cmd in category_data["commands"]:
-            commands_text += f"`{cmd['name']}`  — {cmd['description']}\n"
-            commands_text += f"   ┣ 🔒 *{cmd['permissions']}*\n"
-            if cmd.get('example'):
-                commands_text += f"   ┗ 💡 *{cmd['example']}*\n"
-            else:
-                commands_text += "\n"
+            desc = cmd['description']
+            perms = cmd['permissions']
+            usage = cmd.get('usage', cmd['name'])
+            example = cmd.get('example', '')
 
-        # Chunk if over Discord field limit
-        if len(commands_text) > 1024:
-            parts, current_part = [], ""
-            for line in commands_text.split('\n'):
-                if len(current_part + line + '\n') > 1024:
-                    parts.append(current_part.strip())
-                    current_part = line + '\n'
-                else:
-                    current_part += line + '\n'
-            if current_part.strip():
-                parts.append(current_part.strip())
-            for i, part in enumerate(parts):
-                fname = "Commands" if i == 0 else "Commands (cont.)"
-                embed.add_field(name=fname, value=part, inline=False)
-        else:
-            if commands_text.strip():
-                embed.add_field(name="Commands", value=commands_text, inline=False)
+            field_value = (
+                f"📖 *{desc}*\n"
+                f"🔑 **Permissions:** `{perms}`\n"
+                f"⚙️ **Usage:** `{usage}`"
+            )
+            if example:
+                field_value += f"\n💡 **Example:** `{example}`"
+                
+            if 'round_options' in cmd:
+                field_value += f"\n🔄 **Rounds:** {cmd['round_options']}"
+            if 'group_options' in cmd:
+                field_value += f"\n👥 **Groups:** {cmd['group_options']}"
 
-        footer_text = f"{ORGANIZATION_NAME} • Help • {user_name}"
+            embed.add_field(
+                name=f"🔹 {cmd['name']}",
+                value=field_value,
+                inline=False
+            )
+
+        footer_text = f"{ORGANIZATION_NAME} • Help Hub • Requested by {user_name}"
         if user_icon_url:
             embed.set_footer(text=footer_text, icon_url=user_icon_url)
         else:
@@ -4728,82 +4796,12 @@ def create_id_card_image(user_data: dict, discord_user: discord.Member) -> io.By
 
 
 @tree.command(name="player_information", description="Look up player or team info from the configured Google Sheet")
-@app_commands.describe(
-    user="The player or team captain to look up",
-    link="Google Sheet link for player info (must be publicly accessible) (Organizer/Owner only)",
-    format="Match format — determines which columns are shown (Organizer/Owner only)"
-)
-@app_commands.choices(
-    format=[
-        app_commands.Choice(name="1 vs 1", value="1 vs 1"),
-        app_commands.Choice(name="2 vs 2", value="2 vs 2"),
-        app_commands.Choice(name="3 vs 3", value="3 vs 3"),
-        app_commands.Choice(name="4 vs 4", value="4 vs 4"),
-        app_commands.Choice(name="5 vs 5", value="5 vs 5"),
-    ]
-)
-async def player_information(
-    interaction: discord.Interaction, 
-    user: discord.Member = None, 
-    link: str = None, 
-    format: app_commands.Choice[str] = None
-):
-    """Fetches structured player/team info from the configured Google Sheet,
-    or updates the Google Sheet link and format if requested (Organizer/Owner only).
+@app_commands.describe(user="The player or team captain to look up")
+async def player_information(interaction: discord.Interaction, user: discord.Member):
+    """Fetches structured player/team info from the configured Google Sheet.
     1 vs 1  -> Player Discord ID, Game Name, Game ID, Title
     2-5 vs  -> Team Name, Captain fields, Player 2-N fields (grouped per player)
     """
-    # 1. Validation & config updates
-    if link is not None or format is not None:
-        is_owner = interaction.user.id == BOT_OWNER_ID
-        head_organizer_role = discord.utils.get(interaction.user.roles, id=ROLE_IDS["head_organizer"])
-        if not (is_owner or head_organizer_role):
-            await interaction.response.send_message(
-                "❌ Only **Bot Owner** or **Head Organizer** can configure player info.", ephemeral=True
-            )
-            return
-        
-        global PLAYER_INFO_LINK, PLAYER_INFO_FORMAT
-        if link is not None:
-            PLAYER_INFO_LINK = link
-        if format is not None:
-            PLAYER_INFO_FORMAT = format.value
-        save_config()
-        
-        if not user:
-            # Show the expected sheet column headers based on format
-            is_1v1 = (PLAYER_INFO_FORMAT == "1 vs 1")
-            if is_1v1:
-                col_preview = "• Player Discord ID\n• Player Game Name\n• Player Game ID\n• Player Title"
-            else:
-                try:
-                    match_num = re.search(r'\d+', PLAYER_INFO_FORMAT)
-                    size = int(match_num.group()) if match_num else 5
-                except Exception:
-                    size = 5
-                col_preview = "• Team Name\n• Captain Discord ID | Captain Game Name | Captain Game ID | Captain Title"
-                for n in range(2, size + 1):
-                    col_preview += f"\n• Player {n} Discord ID | Player {n} Game Name | Player {n} Game ID | Player {n} Title"
-
-            embed = discord.Embed(
-                title="✅ Player Info Config Updated",
-                color=discord.Color.green(),
-                timestamp=discord.utils.utcnow()
-            )
-            embed.add_field(name="📊 Format", value=f"**{PLAYER_INFO_FORMAT}**", inline=True)
-            embed.add_field(name="🔗 Sheet Link", value=f"[Open Sheet]({PLAYER_INFO_LINK})" if PLAYER_INFO_LINK else "**None**", inline=True)
-            embed.add_field(name="📋 Expected Sheet Columns", value=col_preview, inline=False)
-            embed.set_footer(text=f"{ORGANIZATION_NAME} • Configured by {interaction.user.display_name}")
-            await interaction.response.send_message(embed=embed, ephemeral=True)
-            return
-
-    if not user:
-        await interaction.response.send_message(
-            "❌ Please specify a user to look up. Example: `/player_information user: @member`",
-            ephemeral=True
-        )
-        return
-
     await interaction.response.defer()
 
     if not PLAYER_INFO_LINK:
