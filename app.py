@@ -644,9 +644,9 @@ COMMAND_DATA = {
             {
                 "name": "/add_captain",
                 "description": "Add two captains to a match channel and automatically rename it",
-                "usage": "/add_captain captain_1:<@user> captain_2:<@user> [team_1:<name>] [team_2:<name>]",
+                "usage": "/add_captain round:<round> captain1:<@user> captain2:<@user> [bracket:<name>] [team_1:<name>] [team_2:<name>]",
                 "permissions": "helper / organizer",
-                "example": "`/add_captain captain_1:@Cap1 captain_2:@Cap2`"
+                "example": "`/add_captain round:Qualifier captain1:@Cap1 captain2:@Cap2 team_1:Alpha team_2:Bravo`"
             },
             {
                 "name": "/general_tie_breaker",
@@ -3951,7 +3951,9 @@ async def general_tie_breaker(
     round="Round of the tournament (R1-R10, Q, SF, Final)",
     captain1="First captain/team for the match",
     captain2="Second captain/team for the match",
-    bracket="Optional bracket identifier (e.g., A, B, Winner, Loser)"
+    bracket="Optional bracket identifier (e.g., A, B, Winner, Loser)",
+    team_1="Optional name of team 1",
+    team_2="Optional name of team 2"
 )
 @app_commands.choices(
     round=[
@@ -3971,7 +3973,15 @@ async def general_tie_breaker(
         app_commands.Choice(name="Final", value="Final")
     ]
 )
-async def add_captain(interaction: discord.Interaction, round: str, captain1: discord.Member, captain2: discord.Member, bracket: str = None):
+async def add_captain(
+    interaction: discord.Interaction, 
+    round: str, 
+    captain1: discord.Member, 
+    captain2: discord.Member, 
+    bracket: str = None,
+    team_1: str = None,
+    team_2: str = None
+):
     """Add two captains to a tournament match and rename the channel with tournament rules."""
     try:
         # Check permissions - only Head Helper, Helper Team, Head Organizer, or Bot Owner can add captains
@@ -3995,11 +4005,15 @@ async def add_captain(interaction: discord.Interaction, round: str, captain1: di
         # Get current channel
         channel = interaction.channel
         
+        # Determine team or captain names for channel renaming
+        t1_name = team_1 if team_1 else captain1.name
+        t2_name = team_2 if team_2 else captain2.name
+        
         # Create new channel name
         if bracket:
-            new_name = f"{bracket}-{round.lower()}-{captain1.name.lower()}-vs-{captain2.name.lower()}"
+            new_name = f"{bracket}-{round.lower()}-{t1_name.lower()}-vs-{t2_name.lower()}"
         else:
-            new_name = f"{round.lower()}-{captain1.name.lower()}-vs-{captain2.name.lower()}"
+            new_name = f"{round.lower()}-{t1_name.lower()}-vs-{t2_name.lower()}"
         
         # Remove special characters and spaces, replace with hyphens
         new_name = re.sub(r'[^a-zA-Z0-9\-]', '-', new_name)
@@ -4052,9 +4066,14 @@ async def add_captain(interaction: discord.Interaction, round: str, captain1: di
             ),
             inline=False
         )
+        
+        # Determine participant descriptions for embed
+        t1_display = f"**{team_1}** ({captain1.mention})" if team_1 else captain1.mention
+        t2_display = f"**{team_2}** ({captain2.mention})" if team_2 else captain2.mention
+        
         rules_embed.add_field(
             name="👥 Match Participants",
-            value=f"**Round:** {round}\n**Captain 1:** {captain1.mention}\n**Captain 2:** {captain2.mention}",
+            value=f"**Round:** {round}\n**Captain 1:** {t1_display}\n**Captain 2:** {t2_display}",
             inline=False
         )
         rules_embed.add_field(
