@@ -4728,12 +4728,82 @@ def create_id_card_image(user_data: dict, discord_user: discord.Member) -> io.By
 
 
 @tree.command(name="player_information", description="Look up player or team info from the configured Google Sheet")
-@app_commands.describe(user="The player or team captain to look up")
-async def player_information(interaction: discord.Interaction, user: discord.Member):
-    """Fetches structured player/team info from the configured Google Sheet.
+@app_commands.describe(
+    user="The player or team captain to look up",
+    link="Google Sheet link for player info (must be publicly accessible) (Organizer/Owner only)",
+    format="Match format — determines which columns are shown (Organizer/Owner only)"
+)
+@app_commands.choices(
+    format=[
+        app_commands.Choice(name="1 vs 1", value="1 vs 1"),
+        app_commands.Choice(name="2 vs 2", value="2 vs 2"),
+        app_commands.Choice(name="3 vs 3", value="3 vs 3"),
+        app_commands.Choice(name="4 vs 4", value="4 vs 4"),
+        app_commands.Choice(name="5 vs 5", value="5 vs 5"),
+    ]
+)
+async def player_information(
+    interaction: discord.Interaction, 
+    user: discord.Member = None, 
+    link: str = None, 
+    format: app_commands.Choice[str] = None
+):
+    """Fetches structured player/team info from the configured Google Sheet,
+    or updates the Google Sheet link and format if requested (Organizer/Owner only).
     1 vs 1  -> Player Discord ID, Game Name, Game ID, Title
     2-5 vs  -> Team Name, Captain fields, Player 2-N fields (grouped per player)
     """
+    # 1. Validation & config updates
+    if link is not None or format is not None:
+        is_owner = interaction.user.id == BOT_OWNER_ID
+        head_organizer_role = discord.utils.get(interaction.user.roles, id=ROLE_IDS["head_organizer"])
+        if not (is_owner or head_organizer_role):
+            await interaction.response.send_message(
+                "❌ Only **Bot Owner** or **Head Organizer** can configure player info.", ephemeral=True
+            )
+            return
+        
+        global PLAYER_INFO_LINK, PLAYER_INFO_FORMAT
+        if link is not None:
+            PLAYER_INFO_LINK = link
+        if format is not None:
+            PLAYER_INFO_FORMAT = format.value
+        save_config()
+        
+        if not user:
+            # Show the expected sheet column headers based on format
+            is_1v1 = (PLAYER_INFO_FORMAT == "1 vs 1")
+            if is_1v1:
+                col_preview = "• Player Discord ID\n• Player Game Name\n• Player Game ID\n• Player Title"
+            else:
+                try:
+                    match_num = re.search(r'\d+', PLAYER_INFO_FORMAT)
+                    size = int(match_num.group()) if match_num else 5
+                except Exception:
+                    size = 5
+                col_preview = "• Team Name\n• Captain Discord ID | Captain Game Name | Captain Game ID | Captain Title"
+                for n in range(2, size + 1):
+                    col_preview += f"\n• Player {n} Discord ID | Player {n} Game Name | Player {n} Game ID | Player {n} Title"
+
+            embed = discord.Embed(
+                title="✅ Player Info Config Updated",
+                color=discord.Color.green(),
+                timestamp=discord.utils.utcnow()
+            )
+            embed.add_field(name="📊 Format", value=f"**{PLAYER_INFO_FORMAT}**", inline=True)
+            embed.add_field(name="🔗 Sheet Link", value=f"[Open Sheet]({PLAYER_INFO_LINK})" if PLAYER_INFO_LINK else "**None**", inline=True)
+            embed.add_field(name="📋 Expected Sheet Columns", value=col_preview, inline=False)
+            embed.set_footer(text=f"{ORGANIZATION_NAME} • Configured by {interaction.user.display_name}")
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+            return
+
+    if not user:
+        await interaction.response.send_message(
+            "❌ Please specify a user to look up. Example: `/player_information user: @member`",
+            ephemeral=True
+        )
+        return
+
     await interaction.response.defer()
 
     if not PLAYER_INFO_LINK:
