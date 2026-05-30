@@ -595,10 +595,10 @@ COMMAND_DATA = {
             },
             {
                 "name": "/event-result",
-                "description": "Record official match outcome, scores, and screenshot evidence",
-                "usage": "/event-result winner:<@user> winner_score:<score> loser:<@user> loser_score:<score> tournament:<name> round:<round> [group:<name>] [remarks:<text>] [screenshots:<1-11>]",
+                "description": "Record official match outcome (supports disqualification & 0:0 uploads)",
+                "usage": "/event-result winner_score:<score> loser_score:<score> tournament:<name> round:<round> [winner:<@user>] [loser:<@user>] [disqualified:<Winner/Loser/Both>] [winner_team_name:<text>] [loser_team_name:<text>] [group:<name>] [remarks:<text>] [screenshots:<1-11>]",
                 "permissions": "judge / organizer",
-                "example": "`/event-result winner:@Cap1 winner_score:2 loser:@Cap2 loser_score:1 tournament:Frigate S1 round:R1`"
+                "example": "`/event-result winner_score:2 loser_score:1 tournament:Frigate S1 round:R1 winner:@Cap1 loser:@Cap2` or `/event-result winner_score:0 loser_score:0 tournament:Frigate S1 round:R1 winner_team_name:Alpha loser_team_name:Bravo disqualified:Both`"
             },
             {
                 "name": "/reassign",
@@ -2605,6 +2605,9 @@ async def event_create(
         color=discord.Color.blue(),
         timestamp=discord.utils.utcnow()
     )
+    if team_1_captain and hasattr(team_1_captain, 'display_avatar'):
+        embed.set_thumbnail(url=team_1_captain.display_avatar.url)
+
     
     # Tournament and Time Information
     # Create Discord timestamp for automatic timezone conversion
@@ -2711,6 +2714,7 @@ async def event_create(
     recorder="Staff member who recorded the match (optional)",
     winner_team_name="Optional name of the winning team",
     loser_team_name="Optional name of the losing team",
+    disqualified="Optional: Mark winner, loser, or both as disqualified",
     ss_1="Screenshot 1 (upload)",
     ss_2="Screenshot 2 (upload)",
     ss_3="Screenshot 3 (upload)",
@@ -2737,6 +2741,11 @@ async def event_create(
         app_commands.Choice(name="Group J", value="Group J"),
         app_commands.Choice(name="Winner", value="Winner"),
         app_commands.Choice(name="Loser", value="Loser"),
+    ],
+    disqualified=[
+        app_commands.Choice(name="Winner Disqualified", value="Winner"),
+        app_commands.Choice(name="Loser Disqualified", value="Loser"),
+        app_commands.Choice(name="Both Disqualified (0:0)", value="Both"),
     ]
 )
 async def event_result(
@@ -2752,6 +2761,7 @@ async def event_result(
     recorder: discord.Member = None,
     winner_team_name: str = None,
     loser_team_name: str = None,
+    disqualified: app_commands.Choice[str] = None,
     ss_1: discord.Attachment = None,
     ss_2: discord.Attachment = None,
     ss_3: discord.Attachment = None,
@@ -2798,8 +2808,28 @@ async def event_result(
     w_mention = winner.mention if winner else f"**{winner_team_name}**"
     l_mention = loser.mention if loser else f"**{loser_team_name}**"
 
+    # Resolve disqualified choice
+    dq_status = disqualified.value if disqualified and isinstance(disqualified, app_commands.Choice) else disqualified
+
+    w_display_name = w_name
+    l_display_name = l_name
+    w_display_mention = w_mention
+    l_display_mention = l_mention
+
+    if dq_status == "Winner":
+        w_display_name = f"{w_name} (Disqualified)"
+        w_display_mention = f"{w_mention} (Disqualified)"
+    elif dq_status == "Loser":
+        l_display_name = f"{l_name} (Disqualified)"
+        l_display_mention = f"{l_mention} (Disqualified)"
+    elif dq_status == "Both":
+        w_display_name = f"{w_name} (Disqualified)"
+        w_display_mention = f"{w_mention} (Disqualified)"
+        l_display_name = f"{l_name} (Disqualified)"
+        l_display_mention = f"{l_mention} (Disqualified)"
+
     # Create results embed matching the exact template format
-    embed_description = f"🗓️ {w_name} Vs {l_name}\n"
+    embed_description = f"🗓️ {w_display_name} Vs {l_display_name}\n"
     embed_description += f"**Tournament:** {tournament}\n"
     embed_description += f"**Round:** {round}"
     
@@ -2816,8 +2846,8 @@ async def event_result(
     
     # Captains Section
     captains_text = f"**Captains**\n"
-    captains_text += f"▪ Team1 Captain: {w_mention}" + (f" `@{winner.name}`" if winner else "") + "\n"
-    captains_text += f"▪ Team2 Captain: {l_mention}" + (f" `@{loser.name}`" if loser else "")
+    captains_text += f"▪ Team1 Captain: {w_display_mention}" + (f" `@{winner.name}`" if winner else "") + "\n"
+    captains_text += f"▪ Team2 Captain: {l_display_mention}" + (f" `@{loser.name}`" if loser else "")
     embed.add_field(name="", value=captains_text, inline=False)
     
     # Add spacing
@@ -2825,7 +2855,14 @@ async def event_result(
     
     # Results Section
     results_text = f"**Results**\n"
-    results_text += f"🏆 {w_name} ({winner_score}) Vs ({loser_score}) {l_name} 💀"
+    if dq_status == "Both":
+        results_text += f"❌ {w_name} (Disqualified) ({winner_score}) Vs ({loser_score}) {l_name} (Disqualified) ❌"
+    elif dq_status == "Winner":
+        results_text += f"💀 {w_name} (Disqualified) ({winner_score}) Vs ({loser_score}) {l_name} 🏆"
+    elif dq_status == "Loser":
+        results_text += f"🏆 {w_name} ({winner_score}) Vs ({loser_score}) {l_name} (Disqualified) 💀"
+    else:
+        results_text += f"🏆 {w_name} ({winner_score}) Vs ({loser_score}) {l_name} 💀"
     embed.add_field(name="", value=results_text, inline=False)
     
     # Add spacing
@@ -2846,23 +2883,6 @@ async def event_result(
     # Add spacing
     embed.add_field(name="\u200b", value="\u200b", inline=False)
     
-    # Embed setup
-    topic = interaction.channel.topic
-    if topic and "MatchID:" in topic:
-        match_id_match = re.search(r'MatchID:(\d+)', topic)
-        p1_match = re.search(r'P1:(\d+)', topic)
-        p2_match = re.search(r'P2:(\d+)', topic)
-        t1_match = re.search(r'Team1:(.*?) \|', topic)
-        t2_match = re.search(r'Team2:(.*)', topic)
-        
-        if match_id_match and p1_match and p2_match:
-            m_id = match_id_match.group(1)
-            p1_id = p1_match.group(1)
-            p2_id = p2_match.group(1)
-            
-            t1_name = t1_match.group(1).strip() if t1_match else None
-            t2_name = t2_match.group(1).strip() if t2_match else None
-
     # Remarks Section
     embed.add_field(name="📝 Remarks", value=remarks, inline=False)
     
@@ -2900,33 +2920,18 @@ async def event_result(
         "Round":          round,
         "Group":          group_label or "",
         "Winner_ID":      str(winner.id) if winner else "",
-        "Winner_Name":    w_name,
+        "Winner_Name":    w_name + (" (Disqualified)" if dq_status in ("Winner", "Both") else ""),
         "Winner_Score":   str(winner_score),
         "Loser_ID":       str(loser.id) if loser else "",
-        "Loser_Name":     l_name,
+        "Loser_Name":     l_name + (" (Disqualified)" if dq_status in ("Loser", "Both") else ""),
         "Loser_Score":    str(loser_score),
         "Judge_ID":       str(interaction.user.id),
         "Judge_Name":     interaction.user.name,
         "Recorder_ID":    str(recorder.id) if recorder else "",
         "Recorder_Name":  recorder.name if recorder else "",
         "Remarks":        remarks,
-        "Screenshots_Count": str(sum(1 for s in [ss_1,ss_2,ss_3,ss_4,ss_5,ss_6,ss_7,ss_8,ss_9,ss_10,ss_11] if s))
-    }))"%Y-%m-%d %H:%M:%S"),
-        "Tournament":     tournament,
-        "Round":          round,
-        "Group":          group_label or "",
-        "Winner_ID":      str(winner.id),
-        "Winner_Name":    winner.name,
-        "Winner_Score":   str(winner_score),
-        "Loser_ID":       str(loser.id),
-        "Loser_Name":     loser.name,
-        "Loser_Score":    str(loser_score),
-        "Judge_ID":       str(interaction.user.id),
-        "Judge_Name":     interaction.user.name,
-        "Recorder_ID":    str(recorder.id) if recorder else "",
-        "Recorder_Name":  recorder.name if recorder else "",
-        "Remarks":        remarks,
-        "Screenshots_Count": str(sum(1 for s in [ss_1,ss_2,ss_3,ss_4,ss_5,ss_6,ss_7,ss_8,ss_9,ss_10,ss_11] if s))
+        "Screenshots_Count": str(sum(1 for s in [ss_1,ss_2,ss_3,ss_4,ss_5,ss_6,ss_7,ss_8,ss_9,ss_10,ss_11] if s)),
+        "Disqualified":   dq_status or "None"
     }))
 
     # Send confirmation to user
@@ -2982,9 +2987,6 @@ async def event_result(
     except Exception as e:
         await interaction.followup.send(f"⚠️ Could not post in current channel: {e}", ephemeral=True)
 
-
-    # Winner-only summary removed per request
-    
     # Post staff attendance in Staff Attendance channel — TASK FORCE TRIDENT styled
     try:
         staff_attendance_channel = interaction.guild.get_channel(CHANNEL_IDS["staff_attendance"])
@@ -2992,7 +2994,7 @@ async def event_result(
             att_embed = discord.Embed(
                 title="📋 Staff Attendance Log",
                 description=(
-                    f"🏅 **{winner.name}** vs **{loser.name}**\n"
+                    f"🏅 **{w_name}** vs **{l_name}**\n"
                     f"**Tournament:** {tournament}\n"
                     f"**Round:** {round}"
                     + (f"\n**Group:** {group_label}" if group_label else "")
@@ -3000,9 +3002,21 @@ async def event_result(
                 color=discord.Color(BRAND_COLOR),
                 timestamp=discord.utils.utcnow()
             )
+            
+            # Winner & Loser display in Attendance
+            w_att_text = winner.mention if winner else f"**{w_name}**"
+            l_att_text = loser.mention if loser else f"**{l_name}**"
+            if dq_status == "Winner":
+                w_att_text += " (Disqualified)"
+            elif dq_status == "Loser":
+                l_att_text += " (Disqualified)"
+            elif dq_status == "Both":
+                w_att_text += " (Disqualified)"
+                l_att_text += " (Disqualified)"
+
             att_embed.add_field(
                 name="🏆 Result",
-                value=f"**Winner:** {winner.mention} `({winner_score})`\n**Loser:** {loser.mention} `({loser_score})`",
+                value=f"**Winner/Team 1:** {w_att_text} `({winner_score})`\n**Loser/Team 2:** {l_att_text} `({loser_score})`",
                 inline=False
             )
             staff_val = f"⚖️ **Judge:** {interaction.user.mention}"
@@ -3026,7 +3040,21 @@ async def event_result(
                 try:
                     t1 = getattr(data.get('team1_captain'), 'id', None)
                     t2 = getattr(data.get('team2_captain'), 'id', None)
-                    if winner.id in (t1, t2) and loser.id in (t1, t2):
+                    
+                    w_id = getattr(winner, 'id', None)
+                    l_id = getattr(loser, 'id', None)
+                    
+                    matches_captains = False
+                    if w_id and l_id and t1 and t2:
+                        if w_id in (t1, t2) and l_id in (t1, t2):
+                            matches_captains = True
+                    elif w_name and l_name:
+                        t1_name = data.get('team1_name') or (data.get('team1_captain').name if hasattr(data.get('team1_captain'), 'name') else "")
+                        t2_name = data.get('team2_name') or (data.get('team2_captain').name if hasattr(data.get('team2_captain'), 'name') else "")
+                        if (w_name.lower() in (t1_name.lower(), t2_name.lower())) or (l_name.lower() in (t1_name.lower(), t2_name.lower())):
+                            matches_captains = True
+                            
+                    if matches_captains:
                         matching_event_ids.append(ev_id)
                         
                         # Update the event with result data
@@ -3095,9 +3123,13 @@ async def event_result(
                         if embed.title and embed.title.startswith("🟢"):
                             # Check if this matches our winner/loser
                             description = embed.description or ""
-                            if (winner.name in description and loser.name in description) or \
-                               (winner.display_name in description and loser.display_name in description) or \
-                               (winner.mention in description and loser.mention in description):
+                            w_search = winner.name if winner else w_name
+                            l_search = loser.name if loser else l_name
+                            w_mention_search = winner.mention if winner else w_name
+                            l_mention_search = loser.mention if loser else l_name
+                            
+                            if (w_search in description and l_search in description) or \
+                               (w_mention_search in description and l_mention_search in description):
                                 if update_embed_title_with_checkmark(embed):
                                     try:
                                         await message.edit(embed=embed)
@@ -3634,6 +3666,33 @@ async def exchange(interaction: discord.Interaction, role: app_commands.Choice[s
             pings += f"{team1.mention} "
         if team2:
             pings += f"{team2.mention} "
+        if current_judge:
+            pings += f"{current_judge.mention} "
+            
+        notify_embed = discord.Embed(
+            title="🔄 Staff Exchange Notification",
+            description=f"Staff assignment for this match has been updated.\n\n**Role:** {role.name}\n**Old Staff:** {old_user.mention} `@{old_user.name}`\n**New Staff:** {new_user.mention} `@{new_user.name}`\n**Updated by:** {interaction.user.mention}",
+            color=discord.Color.blue(),
+            timestamp=discord.utils.utcnow()
+        )
+        channel_mention = interaction.channel.mention
+        notify_embed.add_field(
+            name="📋 Event",
+            value=f"{channel_mention} • Time: {data.get('time_str', '')} • {data.get('round', '')}",
+            inline=False
+        )
+        notify_embed.set_footer(text=f"{ORGANIZATION_NAME} • Match Update")
+        
+        if pings:
+            await interaction.channel.send(content=f"🔔 {pings}", embed=notify_embed)
+        else:
+            await interaction.channel.send(embed=notify_embed)
+            
+        updated_count += 1
+        
+    await interaction.response.send_message(f"✅ {new_user.mention} is now the **{role.name}** for {updated_count} event(s), replacing {old_user.mention}.", ephemeral=True)
+
+
 @tree.command(name="event-edit", description="Edit the event in this ticket channel (Head Organizer/Head Helper/Helper Team only)")
 @app_commands.describe(
     team_1_captain="Captain of team 1 (optional)",
@@ -3822,6 +3881,7 @@ async def event_edit(
         round_info = event_to_edit.get('round', 'Unknown')
         tournament_info = event_to_edit.get('tournament', 'Unknown')
         time_info_display = event_to_edit.get('time_str', 'Unknown')
+        date_info_display = event_to_edit.get('date_str', 'Unknown')
         group_info = event_to_edit.get('group', '')
         
         # Recreate poster
@@ -3870,6 +3930,9 @@ async def event_edit(
             color=discord.Color.blue(),
             timestamp=discord.utils.utcnow()
         )
+        if isinstance(t1_cap_member, discord.Member) and hasattr(t1_cap_member, 'display_avatar'):
+            schedule_embed.set_thumbnail(url=t1_cap_member.display_avatar.url)
+
         timestamp_val = int(new_datetime.timestamp())
         event_details_text = f"**Tournament:** {tournament_info}\n"
         event_details_text += f"**UTC Time:** {time_info['utc_time']}\n"
@@ -3955,6 +4018,9 @@ async def event_edit(
             color=discord.Color.orange(),
             timestamp=discord.utils.utcnow()
         )
+        if isinstance(t1_cap_member, discord.Member) and hasattr(t1_cap_member, 'display_avatar'):
+            embed.set_thumbnail(url=t1_cap_member.display_avatar.url)
+
         
         # Event Details Section
         val_text = f"**Team 1 Name:** {event_to_edit.get('team1_name', 'N/A')}\n"
@@ -3987,11 +4053,21 @@ async def event_edit(
         embed.add_field(name="", value=captains_text, inline=False)
         embed.set_footer(text=f"Event Updated • {ORGANIZATION_NAME}")
         
-        # Post the updated event publicly in the channel
-        await interaction.channel.send(embed=embed)
+        # Post the updated event publicly in the channel with poster
+        if poster_image:
+            try:
+                with open(poster_image, 'rb') as f:
+                    file = discord.File(f, filename="event_poster.png")
+                    embed.set_image(url="attachment://event_poster.png")
+                    await interaction.channel.send(embed=embed, file=file)
+            except Exception as e:
+                print(f"Error sending updated poster to ticket channel: {e}")
+                await interaction.channel.send(embed=embed)
+        else:
+            await interaction.channel.send(embed=embed)
         
         # Send private confirmation to the user who edited
-        await interaction.followup.send("✅ Event updated successfully and posted in the channel!", ephemeral=True)
+        await interaction.followup.send("✅ Event updated successfully, ticket channel renamed, and posted in the channel!", ephemeral=True)
         
     except Exception as e:
         await interaction.followup.send(f"❌ Error updating event: {str(e)}", ephemeral=True)

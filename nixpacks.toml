@@ -1,6 +1,9 @@
 [phases.setup]
 nixPkgs = ["python311"]
 
+[variables]
+MISE_PYTHON_GITHUB_ATTESTATIONS = "false"
+
 [phases.install]
 cmds = [
     "pip install --upgrade pip",
