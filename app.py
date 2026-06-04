@@ -1545,6 +1545,33 @@ async def schedule_event_cleanup(event_id: str, delay_hours: int = 36):
                 except Exception as e:
                     print(f"Poster cleanup error for {event_id}: {e}")
 
+                # Delete or complete Discord Server Scheduled Event if exists
+                try:
+                    scheduled_event_id_val = data.get('scheduled_event_id')
+                    if scheduled_event_id_val:
+                        for guild in bot.guilds:
+                            try:
+                                scheduled_event = guild.get_scheduled_event(int(scheduled_event_id_val))
+                                if not scheduled_event:
+                                    scheduled_event = await guild.fetch_scheduled_event(int(scheduled_event_id_val))
+                                if scheduled_event:
+                                    try:
+                                        if scheduled_event.status == discord.EventStatus.scheduled:
+                                            try:
+                                                await scheduled_event.edit(status=discord.EventStatus.active)
+                                            except Exception:
+                                                pass
+                                        await scheduled_event.edit(status=discord.EventStatus.completed)
+                                    except Exception:
+                                        try:
+                                            await scheduled_event.delete()
+                                        except Exception:
+                                            pass
+                            except Exception:
+                                pass
+                except Exception as e:
+                    print(f"Error cleaning up scheduled event: {e}")
+
                 # Remove any reminder task
                 try:
                     if event_id in reminder_tasks:
@@ -2596,6 +2623,89 @@ async def event_create(
     else:
         print("No template images found in Templates folder")
     
+    # Try to create a Discord Server Scheduled Event
+    scheduled_event = None
+    try:
+        # We need timezone-aware datetime. event_datetime is naive, representing UTC
+        event_datetime_aware = event_datetime.replace(tzinfo=datetime.timezone.utc)
+        
+        # Just in case the user set a date in the past, make sure start_time is at least 15 seconds in the future
+        now_aware = datetime.datetime.now(datetime.timezone.utc)
+        if event_datetime_aware <= now_aware:
+            event_datetime_aware = now_aware + datetime.timedelta(seconds=15)
+            
+        end_time_aware = event_datetime_aware + datetime.timedelta(minutes=45) # 45 minutes duration
+        
+        # Emoji mapping for group letter
+        group_emoji = "👥"
+        if group_label:
+            group_upper = group_label.upper()
+            if "GROUP A" in group_upper or "GROUP: A" in group_upper or group_upper == "A":
+                group_emoji = "🅰️"
+            elif "GROUP B" in group_upper or "GROUP: B" in group_upper or group_upper == "B":
+                group_emoji = "🅱️"
+            elif "GROUP C" in group_upper:
+                group_emoji = "🇨"
+            elif "GROUP D" in group_upper:
+                group_emoji = "🇩"
+            elif "GROUP E" in group_upper:
+                group_emoji = "🇪"
+            elif "GROUP F" in group_upper:
+                group_emoji = "🇫"
+            elif "GROUP G" in group_upper:
+                group_emoji = "🇬"
+            elif "GROUP H" in group_upper:
+                group_emoji = "🇭"
+            elif "GROUP I" in group_upper:
+                group_emoji = "🇮"
+            elif "GROUP J" in group_upper:
+                group_emoji = "🇯"
+                
+        description_str = f"🏆 Tournament: {tournament}\n"
+        if group_label:
+            description_str += f"{group_emoji} Group: {group_label}\n"
+        description_str += f"🔄 Round: {round_label}"
+        
+        t1_disp = team_1_name if team_1_name else team_1_captain.name
+        t2_disp = team_2_name if team_2_name else team_2_captain.name
+        
+        image_bytes = None
+        if poster_image:
+            try:
+                with open(poster_image, 'rb') as img_f:
+                    image_bytes = img_f.read()
+            except Exception as e:
+                print(f"Error reading poster image for Discord Scheduled Event: {e}")
+                
+        try:
+            scheduled_event = await interaction.guild.create_scheduled_event(
+                name=f"{t1_disp} vs {t2_disp}",
+                description=description_str,
+                start_time=event_datetime_aware,
+                end_time=end_time_aware,
+                entity_type=discord.EntityType.external,
+                privacy_level=discord.PrivacyLevel.guild_only,
+                location=interaction.guild.name,
+                image=image_bytes
+            )
+        except Exception as e:
+            print(f"Failed to create scheduled event with image, trying without image: {e}")
+            scheduled_event = await interaction.guild.create_scheduled_event(
+                name=f"{t1_disp} vs {t2_disp}",
+                description=description_str,
+                start_time=event_datetime_aware,
+                end_time=end_time_aware,
+                entity_type=discord.EntityType.external,
+                privacy_level=discord.PrivacyLevel.guild_only,
+                location=interaction.guild.name
+            )
+        if scheduled_event:
+            scheduled_events[event_id]['scheduled_event_id'] = scheduled_event.id
+            save_scheduled_events()
+            print(f"✅ Discord Scheduled Event created: '{scheduled_event.name}' with ID {scheduled_event.id}")
+    except Exception as e:
+        print(f"❌ Failed to create Discord Scheduled Event: {e}")
+    
     # Create event embed with new format
     t1_disp = team_1_name if team_1_name else team_1_captain.name
     t2_disp = team_2_name if team_2_name else team_2_captain.name
@@ -3082,6 +3192,30 @@ async def event_result(
             try:
                 event_data = scheduled_events.get(ev_id)
                 if event_data:
+                    # Cancel/complete Discord Server Scheduled Event
+                    scheduled_event_id = event_data.get('scheduled_event_id')
+                    if scheduled_event_id:
+                        try:
+                            scheduled_event = interaction.guild.get_scheduled_event(int(scheduled_event_id))
+                            if not scheduled_event:
+                                scheduled_event = await interaction.guild.fetch_scheduled_event(int(scheduled_event_id))
+                            if scheduled_event:
+                                # Try completing, fallback to deleting
+                                try:
+                                    if scheduled_event.status == discord.EventStatus.scheduled:
+                                        try:
+                                            await scheduled_event.edit(status=discord.EventStatus.active)
+                                        except Exception:
+                                            pass
+                                    await scheduled_event.edit(status=discord.EventStatus.completed)
+                                    print(f"✅ Completed Scheduled Event {scheduled_event_id}")
+                                except Exception as status_err:
+                                    print(f"Failed to complete event status: {status_err}, trying deletion")
+                                    await scheduled_event.delete()
+                                    print(f"✅ Deleted Scheduled Event {scheduled_event_id}")
+                        except Exception as e:
+                            print(f"Error handling scheduled event completion/deletion: {e}")
+
                     schedule_channel_id = event_data.get('schedule_channel_id')
                     schedule_message_id = event_data.get('schedule_message_id')
                     
@@ -3454,6 +3588,19 @@ async def event_delete(interaction: discord.Interaction):
                 
                 # Get event details for confirmation
                 event_data = scheduled_events[selected_event_id]
+                
+                # Delete Discord Server Scheduled Event if exists
+                scheduled_event_id_val = event_data.get('scheduled_event_id')
+                if scheduled_event_id_val:
+                    try:
+                        scheduled_event = select_interaction.guild.get_scheduled_event(int(scheduled_event_id_val))
+                        if not scheduled_event:
+                            scheduled_event = await select_interaction.guild.fetch_scheduled_event(int(scheduled_event_id_val))
+                        if scheduled_event:
+                            await scheduled_event.delete()
+                            print(f"🗑️ Deleted Scheduled Event {scheduled_event_id_val} from event-delete")
+                    except Exception as e:
+                        print(f"Error deleting scheduled event: {e}")
                 
                 # Cancel any scheduled reminders
                 if selected_event_id in reminder_tasks:
@@ -3912,6 +4059,86 @@ async def event_edit(
                     save_scheduled_events()
             except Exception as e:
                 print(f"Error creating updated poster: {e}")
+
+        # Update Discord Scheduled Event if it exists
+        scheduled_event_id = event_to_edit.get('scheduled_event_id')
+        if scheduled_event_id:
+            try:
+                scheduled_event = interaction.guild.get_scheduled_event(int(scheduled_event_id))
+                if not scheduled_event:
+                    scheduled_event = await interaction.guild.fetch_scheduled_event(int(scheduled_event_id))
+                
+                if scheduled_event:
+                    t1_disp = event_to_edit.get('team1_name') or t1_name
+                    t2_disp = event_to_edit.get('team2_name') or t2_name
+                    
+                    group_emoji = "👥"
+                    if group_info:
+                        group_upper = group_info.upper()
+                        if "GROUP A" in group_upper or "GROUP: A" in group_upper or group_upper == "A":
+                            group_emoji = "🅰️"
+                        elif "GROUP B" in group_upper or "GROUP: B" in group_upper or group_upper == "B":
+                            group_emoji = "🅱️"
+                        elif "GROUP C" in group_upper:
+                            group_emoji = "🇨"
+                        elif "GROUP D" in group_upper:
+                            group_emoji = "🇩"
+                        elif "GROUP E" in group_upper:
+                            group_emoji = "🇪"
+                        elif "GROUP F" in group_upper:
+                            group_emoji = "🇫"
+                        elif "GROUP G" in group_upper:
+                            group_emoji = "🇬"
+                        elif "GROUP H" in group_upper:
+                            group_emoji = "🇭"
+                        elif "GROUP I" in group_upper:
+                            group_emoji = "🇮"
+                        elif "GROUP J" in group_upper:
+                            group_emoji = "🇯"
+                    
+                    description_str = f"🏆 Tournament: {tournament_info}\n"
+                    if group_info:
+                        description_str += f"{group_emoji} Group: {group_info}\n"
+                    description_str += f"🔄 Round: {round_info}"
+                    
+                    event_datetime_aware = new_datetime.replace(tzinfo=datetime.timezone.utc)
+                    now_aware = datetime.datetime.now(datetime.timezone.utc)
+                    if event_datetime_aware <= now_aware:
+                        event_datetime_aware = now_aware + datetime.timedelta(seconds=15)
+                    end_time_aware = event_datetime_aware + datetime.timedelta(minutes=45)
+                    
+                    image_bytes = None
+                    if poster_image:
+                        try:
+                            with open(poster_image, 'rb') as img_f:
+                                image_bytes = img_f.read()
+                        except Exception as e:
+                            print(f"Error reading updated poster image: {e}")
+                    
+                    try:
+                        kwargs = {
+                            "name": f"{t1_disp} vs {t2_disp}",
+                            "description": description_str,
+                            "start_time": event_datetime_aware,
+                            "end_time": end_time_aware,
+                            "location": interaction.guild.name
+                        }
+                        if image_bytes:
+                            kwargs["image"] = image_bytes
+                            
+                        await scheduled_event.edit(**kwargs)
+                    except Exception as e:
+                        print(f"Failed to edit scheduled event with image, trying without: {e}")
+                        await scheduled_event.edit(
+                            name=f"{t1_disp} vs {t2_disp}",
+                            description=description_str,
+                            start_time=event_datetime_aware,
+                            end_time=end_time_aware,
+                            location=interaction.guild.name
+                        )
+                    print(f"✅ Discord Scheduled Event updated: ID {scheduled_event.id}")
+            except Exception as e:
+                print(f"❌ Failed to update Discord Scheduled Event: {e}")
 
         # Update the `#take-schedule` message
         take_schedule_view = TakeScheduleButton(
